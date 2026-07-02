@@ -182,7 +182,8 @@ export interface UpdateInstanceRequest {
 // ---------------------------------------------------------------------------
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
-export type JobType = 'install' | 'update' | 'backup' | 'restore' | 'delete_instance';
+export type JobType =
+  'install' | 'update' | 'backup' | 'restore' | 'delete_instance' | 'system_update';
 
 export interface JobDto {
   id: string;
@@ -264,6 +265,16 @@ export interface HealthDto {
   status: 'ok';
   uptime: number;
   version: string;
+}
+
+export interface UpdateStatusDto {
+  configured: boolean;
+  repoUrl: string;
+  branch: string;
+  currentCommit: string | null;
+  currentCommitAt: string | null;
+  remoteCommit: string | null;
+  updateAvailable: boolean;
 }
 
 export interface DependencyStatusDto {

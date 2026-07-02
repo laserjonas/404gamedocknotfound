@@ -42,6 +42,9 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  GAMEDOCK_APP_DIR: z.string().optional(),
+  GAMEDOCK_UPDATE_REPO_URL: z.string().default(''),
+  GAMEDOCK_UPDATE_BRANCH: z.string().default('main'),
 });
 
 export interface AppConfig {
@@ -59,6 +62,9 @@ export interface AppConfig {
   isProduction: boolean;
   maxUploadBytes: number;
   secureCookies: boolean;
+  appDir: string;
+  updateRepoUrl: string;
+  updateBranch: string;
 }
 
 const INSECURE_SECRETS = new Set(['dev-only-insecure-secret', 'change-me-to-a-long-random-string']);
@@ -110,6 +116,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     isProduction,
     maxUploadBytes: e.GAMEDOCK_MAX_UPLOAD_MB * 1024 * 1024,
     secureCookies: e.GAMEDOCK_SECURE_COOKIES || isProduction,
+    appDir: e.GAMEDOCK_APP_DIR ? resolve(configBaseDir, e.GAMEDOCK_APP_DIR) : process.cwd(),
+    updateRepoUrl: e.GAMEDOCK_UPDATE_REPO_URL,
+    updateBranch: e.GAMEDOCK_UPDATE_BRANCH,
   };
 }
 

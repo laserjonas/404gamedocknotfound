@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type { AppConfig } from './config.js';
 import type { Logger } from './logger.js';
 import { createDatabase, type DatabaseClient } from './db/database.js';
@@ -19,6 +20,7 @@ import { FileService } from './services/files.js';
 import { InstanceService } from './services/instances.js';
 import { SystemStatsService } from './services/systemStats.js';
 import { CrashRestartTracker } from './services/crashRestart.js';
+import { SelfUpdateService } from './services/selfUpdate.js';
 import { toAuditDto } from './db/repositories/audit.js';
 
 const CRASH_RESTART_LIMITS = { maxRestarts: 4, windowMs: 5 * 60 * 1000 };
@@ -47,6 +49,7 @@ export interface AppContext {
   files: FileService;
   instances: InstanceService;
   systemStats: SystemStatsService;
+  selfUpdate: SelfUpdateService;
   audit(entry: {
     userId?: string | null;
     username?: string | null;
@@ -120,6 +123,13 @@ export function createContext(config: AppConfig, logger: Logger): AppContext {
     logger,
   );
   const systemStats = new SystemStatsService();
+  const selfUpdate = new SelfUpdateService({
+    repoUrl: config.updateRepoUrl,
+    branch: config.updateBranch,
+    appDir: config.appDir,
+    stateFilePath: join(config.dataDir, 'update-state.json'),
+    stagingDir: join(config.dataDir, 'update-staging'),
+  });
 
   // Periodic session cleanup.
   const sessionCleanup = setInterval(() => auth.cleanupExpired(), 60 * 60 * 1000);
@@ -188,6 +198,7 @@ export function createContext(config: AppConfig, logger: Logger): AppContext {
     files,
     instances,
     systemStats,
+    selfUpdate,
     audit,
     async shutdown() {
       clearInterval(sessionCleanup);

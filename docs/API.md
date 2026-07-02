@@ -39,13 +39,13 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 
 ## Instances
 
-| Method | Path             | Role     | Description                                                                            |
-| ------ | ---------------- | -------- | -------------------------------------------------------------------------------------- |
-| GET    | `/instances`     | viewer   | List instances (live status, ports, env)                                               |
-| POST   | `/instances`     | admin    | Body `{name, templateId, variables?, ports?}`                                          |
-| GET    | `/instances/:id` | viewer   | Detail incl. CPU/RAM usage while running                                               |
+| Method | Path             | Role     | Description                                                                                                                                        |
+| ------ | ---------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/instances`     | viewer   | List instances (live status, ports, env)                                                                                                           |
+| POST   | `/instances`     | admin    | Body `{name, templateId, variables?, ports?}`                                                                                                      |
+| GET    | `/instances/:id` | viewer   | Detail incl. CPU/RAM usage while running                                                                                                           |
 | PATCH  | `/instances/:id` | operator | Body `{name?, autoStart?, crashRestart?, backupIntervalHours?, backupRetentionCount?, startExecutable?, startArgs?, envVars?, variables?, ports?}` |
-| DELETE | `/instances/:id` | admin    | Deletes files + backups; returns `{job}`                                               |
+| DELETE | `/instances/:id` | admin    | Deletes files + backups; returns `{job}`                                                                                                           |
 
 ### Actions
 
@@ -96,13 +96,15 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 
 ## System
 
-| Method | Path                   | Role   | Description                                 |
-| ------ | ---------------------- | ------ | ------------------------------------------- |
-| GET    | `/system/health`       | –      | Liveness probe                              |
-| GET    | `/system/stats`        | viewer | CPU, memory, disk, network, instance counts |
-| GET    | `/system/dependencies` | viewer | steamcmd/java/tar/unzip detection           |
-| GET    | `/system/events`       | viewer | Recent instance/backup events (dashboard)   |
-| GET    | `/system/audit?limit=` | admin  | Audit log                                   |
+| Method | Path                   | Role   | Description                                                       |
+| ------ | ---------------------- | ------ | ----------------------------------------------------------------- |
+| GET    | `/system/health`       | –      | Liveness probe                                                    |
+| GET    | `/system/stats`        | viewer | CPU, memory, disk, network, instance counts                       |
+| GET    | `/system/dependencies` | viewer | steamcmd/java/tar/unzip detection                                 |
+| GET    | `/system/events`       | viewer | Recent instance/backup events (dashboard)                         |
+| GET    | `/system/audit?limit=` | admin  | Audit log                                                         |
+| GET    | `/system/update`       | admin  | Check for updates on the configured git branch                    |
+| POST   | `/system/update`       | admin  | Clone + build + swap in the latest commit → `{job}`, then restart |
 
 ## Events
 

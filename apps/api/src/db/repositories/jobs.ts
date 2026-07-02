@@ -54,6 +54,14 @@ export class JobRepository {
     );
   }
 
+  /** Any queued or running job of the given type (used for instance-less jobs like system_update). */
+  findActiveByType(type: JobType): JobRow | undefined {
+    return this.db.get<JobRow>(
+      "SELECT * FROM jobs WHERE type = ? AND status IN ('queued', 'running') LIMIT 1",
+      [type],
+    );
+  }
+
   markStarted(id: string): void {
     this.db.run("UPDATE jobs SET status = 'running', started_at = ? WHERE id = ?", [nowIso(), id]);
   }

@@ -1,13 +1,44 @@
 import { useEffect, useState } from 'react';
-import type { AuditLogDto, DependencyStatusDto } from '@gamedock/shared';
-import { api } from '../api';
+import type { AuditLogDto, DependencyStatusDto, JobDto, UpdateStatusDto } from '@gamedock/shared';
+import { api, ApiError } from '../api';
 import { useAuth } from '../auth';
 import { formatDate } from '../format';
+import { JobLogModal } from '../components/JobLogModal';
 
 export function SettingsPage() {
   const { hasRole } = useAuth();
   const [deps, setDeps] = useState<DependencyStatusDto[]>([]);
   const [audit, setAudit] = useState<AuditLogDto[]>([]);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatusDto | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateJobId, setUpdateJobId] = useState<string | null>(null);
+
+  const loadUpdateStatus = () => {
+    setUpdateError(null);
+    setCheckingUpdate(true);
+    api
+      .get<UpdateStatusDto>('/api/system/update')
+      .then(setUpdateStatus)
+      .catch((err) => setUpdateError(err instanceof Error ? err.message : 'Check failed'))
+      .finally(() => setCheckingUpdate(false));
+  };
+
+  const startUpdate = async () => {
+    setUpdateError(null);
+    try {
+      const { job } = await api.post<{ job: JobDto }>('/api/system/update');
+      setUpdateJobId(job.id);
+    } catch (err) {
+      setUpdateError(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Update failed',
+      );
+    }
+  };
 
   useEffect(() => {
     api
@@ -19,12 +50,80 @@ export function SettingsPage() {
         .get<AuditLogDto[]>('/api/system/audit?limit=100')
         .then(setAudit)
         .catch(() => {});
+      loadUpdateStatus();
     }
   }, [hasRole]);
 
   return (
     <div>
       <h1>Settings</h1>
+
+      {hasRole('admin') && (
+        <div className="card">
+          <h2>Application updates</h2>
+          {updateStatus?.configured === false ? (
+            <p className="muted">
+              Set <code>GAMEDOCK_UPDATE_REPO_URL</code> (and optionally{' '}
+              <code>GAMEDOCK_UPDATE_BRANCH</code>) in <code>.env</code> and restart GameDock to
+              enable self-updates from a git repository.
+            </p>
+          ) : (
+            <>
+              <table>
+                <tbody>
+                  <tr>
+                    <td>Repository</td>
+                    <td className="muted">
+                      {updateStatus?.repoUrl} ({updateStatus?.branch})
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Running commit</td>
+                    <td className="muted">
+                      <code>{updateStatus?.currentCommit?.slice(0, 12) ?? 'unknown'}</code>
+                      {updateStatus?.currentCommitAt &&
+                        ` — ${formatDate(updateStatus.currentCommitAt)}`}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Latest on branch</td>
+                    <td className="muted">
+                      {updateStatus?.remoteCommit ? (
+                        <code>{updateStatus.remoteCommit.slice(0, 12)}</code>
+                      ) : (
+                        '-'
+                      )}
+                      {updateStatus?.updateAvailable && (
+                        <span className="badge job-queued"> update available</span>
+                      )}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div className="modal-actions" style={{ justifyContent: 'flex-start', gap: 8 }}>
+                <button
+                  className="btn btn-small"
+                  onClick={loadUpdateStatus}
+                  disabled={checkingUpdate}
+                >
+                  {checkingUpdate ? 'Checking...' : 'Check for updates'}
+                </button>
+                <button className="btn btn-primary btn-small" onClick={() => void startUpdate()}>
+                  Update now
+                </button>
+              </div>
+              <div className="field-hint">
+                Clones the branch above, builds it, and swaps it in for the running app, then
+                restarts GameDock - expect a short outage (usually well under a minute) and a brief
+                drop in this log view while it comes back up.
+              </div>
+            </>
+          )}
+          {updateError && <div className="error-text">{updateError}</div>}
+        </div>
+      )}
+
+      {updateJobId && <JobLogModal jobId={updateJobId} onClose={() => setUpdateJobId(null)} />}
 
       <div className="card">
         <h2>Host dependencies</h2>
