@@ -46,9 +46,10 @@ function runTool(
   args: string[],
   cwd: string,
   onLog: (line: string) => void,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { cwd, env, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
     const handle = (chunk: Buffer) => {
       for (const line of chunk.toString('utf8').split(/\r?\n/)) {
         if (line.trim()) onLog(line);
@@ -165,7 +166,12 @@ export class SelfUpdateService {
     await runTool('pnpm', ['-r', 'build'], stagingDir, onLog);
 
     onLog('Installing production dependencies...');
-    await runTool('pnpm', ['install', '--frozen-lockfile', '--prod'], stagingDir, onLog);
+    // pnpm refuses to purge dev deps from node_modules without a TTY confirmation
+    // unless CI=true is set - we're never attached to a TTY here.
+    await runTool('pnpm', ['install', '--frozen-lockfile', '--prod'], stagingDir, onLog, {
+      ...process.env,
+      CI: 'true',
+    });
 
     onLog('Assembling web UI...');
     await rm(join(stagingDir, 'apps', 'api', 'web-dist'), { recursive: true, force: true });
