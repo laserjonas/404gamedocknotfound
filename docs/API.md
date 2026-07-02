@@ -114,12 +114,6 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 | GET    | `/system/logs/stream`                   | admin | **SSE** live tail of new log entries                                                                                          |
 | PATCH  | `/system/logs/level`                    | admin | Body `{level}` (`trace`\|`debug`\|`info`\|`warn`\|`error`\|`fatal`\|`silent`) — applies immediately, persists across restarts |
 
-## Steam catalog
-
-| Method | Path                                    | Role   | Description                                                                                                    |
-| ------ | --------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------- |
-| GET    | `/steam/catalog?search=&limit=&offset=` | viewer | Browse Steam "Dedicated Server" tools (anonymous SteamCMD login), cross-referenced against installed templates |
-
 ## Events
 
 | Method | Path             | Role   | Description                                                                        |

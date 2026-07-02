@@ -15,17 +15,6 @@ User templates are loaded after built-ins; a user template with the same `id`
 **shadows** the built-in one. Templates are loaded at service start (restart the
 service after adding one). `pnpm gamedock doctor` lists load errors.
 
-## Finding new games to support
-
-The "New server" page has a **Browse Steam dedicated servers** section (backed
-by `GET /api/steam/catalog`) that lists every Steam app whose name matches
-`dedicated server`, i.e. Valve's convention for the free, anonymous-login-only
-server tools this project supports — cross-referenced against the templates
-above so already-supported games show as installable. It's a discovery aid for
-finding the Steam app id of a game you want to add a template for next, not a
-generic installer: GameDock still needs a template (start/stop commands,
-ports, variables) before an app id becomes actually installable.
-
 ## Format
 
 ```jsonc

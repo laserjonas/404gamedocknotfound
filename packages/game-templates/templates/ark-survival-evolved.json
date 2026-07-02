@@ -1,0 +1,96 @@
+{
+  "id": "ark-survival-evolved",
+  "name": "ARK: Survival Evolved Dedicated Server",
+  "description": "ARK: Survival Evolved dedicated server, installed via SteamCMD (anonymous). Large download (~15 GB).",
+  "installMethod": "steamcmd",
+  "steam": {
+    "appId": 376030,
+    "anonymous": true
+  },
+  "os": ["linux"],
+  "ports": [
+    { "name": "Game", "port": 7777, "protocol": "udp" },
+    { "name": "Peer", "port": 7778, "protocol": "udp" },
+    { "name": "Query", "port": 27015, "protocol": "udp" },
+    { "name": "RCON", "port": 27020, "protocol": "tcp" }
+  ],
+  "start": {
+    "executable": "./ShooterGame/Binaries/Linux/ShooterGameServer",
+    "args": [
+      "{{MAP}}?SessionName={{SERVER_NAME}}?ServerPassword={{SERVER_PASSWORD}}?ServerAdminPassword={{ADMIN_PASSWORD}}?Port={{GAME_PORT}}?QueryPort={{QUERY_PORT}}?MaxPlayers={{MAX_PLAYERS}}?listen",
+      "-server",
+      "-log"
+    ],
+    "workingDir": "."
+  },
+  "env": {},
+  "stop": {
+    "method": "sigint",
+    "timeoutSeconds": 90
+  },
+  "console": {
+    "supportsInput": false
+  },
+  "configFiles": [
+    {
+      "path": "ShooterGame/Saved/Config/LinuxServer",
+      "description": "GameUserSettings.ini and Game.ini, created after first run",
+      "createdByServer": true
+    },
+    {
+      "path": "ShooterGame/Saved/SavedArks",
+      "description": "World save data, created after first run",
+      "createdByServer": true
+    }
+  ],
+  "variables": [
+    {
+      "key": "SERVER_NAME",
+      "label": "Server name",
+      "default": "GameDock ARK",
+      "required": true
+    },
+    {
+      "key": "SERVER_PASSWORD",
+      "label": "Server join password (blank = no password)",
+      "default": "",
+      "required": false
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "label": "Admin password (for RCON/in-game admin commands)",
+      "default": "changeme",
+      "required": true,
+      "secret": true
+    },
+    {
+      "key": "MAP",
+      "label": "Map",
+      "default": "TheIsland",
+      "required": true,
+      "pattern": "[A-Za-z0-9_]{1,64}"
+    },
+    {
+      "key": "GAME_PORT",
+      "label": "Game port (UDP)",
+      "default": "7777",
+      "required": true,
+      "pattern": "[0-9]{2,5}"
+    },
+    {
+      "key": "QUERY_PORT",
+      "label": "Query port (UDP)",
+      "default": "27015",
+      "required": true,
+      "pattern": "[0-9]{2,5}"
+    },
+    {
+      "key": "MAX_PLAYERS",
+      "label": "Max players",
+      "default": "70",
+      "required": true,
+      "pattern": "[0-9]{1,3}"
+    }
+  ],
+  "notes": "ARK doesn't expose a simple console \"quit\" command over stdin, so GameDock stops it with SIGINT (Unreal Engine's standard graceful-shutdown signal) - this can take up to a minute while the world saves. For extra safety before stopping, enable RCON in GameUserSettings.ini and run \"saveworld\" first. The peer port (game port + 1) must also be open."
+}

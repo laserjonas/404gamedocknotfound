@@ -1,0 +1,75 @@
+{
+  "id": "left-4-dead-2",
+  "name": "Left 4 Dead 2 Dedicated Server",
+  "description": "L4D2 dedicated server, installed via SteamCMD (anonymous).",
+  "installMethod": "steamcmd",
+  "steam": {
+    "appId": 222860,
+    "anonymous": true
+  },
+  "os": ["linux"],
+  "ports": [{ "name": "Game/Query", "port": 27015, "protocol": "both" }],
+  "start": {
+    "executable": "./srcds_run",
+    "args": [
+      "-game",
+      "left4dead2",
+      "-console",
+      "-port",
+      "{{GAME_PORT}}",
+      "+map",
+      "{{MAP}}",
+      "+maxplayers",
+      "{{MAX_PLAYERS}}",
+      "+hostname",
+      "{{SERVER_NAME}}"
+    ],
+    "workingDir": "."
+  },
+  "env": {},
+  "stop": {
+    "method": "command",
+    "command": "quit",
+    "timeoutSeconds": 60
+  },
+  "console": {
+    "supportsInput": true
+  },
+  "configFiles": [
+    {
+      "path": "left4dead2/cfg",
+      "description": "Server configuration (server.cfg etc.), created after first run",
+      "createdByServer": true
+    }
+  ],
+  "variables": [
+    {
+      "key": "SERVER_NAME",
+      "label": "Server name",
+      "default": "GameDock L4D2",
+      "required": true
+    },
+    {
+      "key": "GAME_PORT",
+      "label": "Game port (UDP+TCP)",
+      "default": "27015",
+      "required": true,
+      "pattern": "[0-9]{2,5}"
+    },
+    {
+      "key": "MAP",
+      "label": "Start map",
+      "default": "c1m1_hotel",
+      "required": true,
+      "pattern": "[A-Za-z0-9_]{1,64}"
+    },
+    {
+      "key": "MAX_PLAYERS",
+      "label": "Max players",
+      "default": "8",
+      "required": true,
+      "pattern": "[0-9]{1,2}"
+    }
+  ],
+  "notes": "Public (internet-visible) servers need a Steam Game Server Login Token (GSLT) from https://steamcommunity.com/dev/managegameservers - add \"+sv_setsteamaccount\" and your token as extra startup arguments in the startup editor. Needs 32-bit compat libraries (lib32gcc-s1, lib32stdc++6), already installed by scripts/install.sh for SteamCMD."
+}

@@ -18,7 +18,6 @@ import { registerBackupRoutes } from './routes/backups.js';
 import { registerJobRoutes } from './routes/jobs.js';
 import { registerSystemRoutes } from './routes/system.js';
 import { registerEventRoutes } from './routes/events.js';
-import { registerSteamRoutes } from './routes/steam.js';
 
 export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   const app = Fastify({
@@ -84,7 +83,6 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   registerJobRoutes(app, ctx);
   registerSystemRoutes(app, ctx);
   registerEventRoutes(app, ctx);
-  registerSteamRoutes(app, ctx);
 
   // Serve the built web UI in production (apps/web/dist copied to ../web-dist
   // by deploy.sh, or resolved from the monorepo layout).

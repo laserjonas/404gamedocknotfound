@@ -16,10 +16,9 @@ from a clean web interface.
 - **Game templates** — JSON-based, add new games without touching backend code.
   Starter templates: Valheim, Project Zomboid, Rust, Counter-Strike 2, Palworld,
   Terraria, Minecraft Java (with a version picker), Minecraft Modded (modpack
-  server packs), Factorio
-- **Steam catalog browser** — browse every Steam "Dedicated Server" tool
-  (anonymous SteamCMD login, no Steam account needed) right from the New server
-  page, cross-referenced against installed templates
+  server packs), Factorio, ARK: Survival Evolved, 7 Days to Die, Team Fortress 2,
+  Left 4 Dead 2, Garry's Mod, Unturned, Satisfactory, Squad, Barotrauma,
+  Insurgency: Sandstorm
 - **Logs page** — runtime-adjustable log level (no restart) plus a live,
   filterable view of structured application logs, tagged by subsystem
 - **File manager** — browse, edit, upload, delete files; strictly sandboxed to each

@@ -21,7 +21,6 @@ import { InstanceService } from './services/instances.js';
 import { SystemStatsService } from './services/systemStats.js';
 import { CrashRestartTracker } from './services/crashRestart.js';
 import { SelfUpdateService } from './services/selfUpdate.js';
-import { SteamCatalogService } from './services/steamCatalog.js';
 import { LogService } from './services/logs.js';
 import { toAuditDto } from './db/repositories/audit.js';
 
@@ -52,7 +51,6 @@ export interface AppContext {
   instances: InstanceService;
   systemStats: SystemStatsService;
   selfUpdate: SelfUpdateService;
-  steamCatalog: SteamCatalogService;
   logs: LogService;
   /** Creates a tagged child logger and registers it so runtime level changes reach it too. */
   componentLogger(name: string): Logger;
@@ -142,11 +140,6 @@ export function createContext(
     componentLogger('instances'),
   );
   const systemStats = new SystemStatsService();
-  const steamCatalog = new SteamCatalogService(
-    config.dataDir,
-    templates,
-    componentLogger('steam-catalog'),
-  );
   const selfUpdate = new SelfUpdateService({
     repoUrl: config.updateRepoUrl,
     branch: config.updateBranch,
@@ -223,7 +216,6 @@ export function createContext(
     instances,
     systemStats,
     selfUpdate,
-    steamCatalog,
     logs,
     componentLogger,
     audit,

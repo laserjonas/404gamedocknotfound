@@ -143,14 +143,24 @@ describe('built-in templates', () => {
     expect(errors).toEqual([]);
     const ids = templates.map((t) => t.id).sort();
     expect(ids).toEqual([
+      '7-days-to-die',
+      'ark-survival-evolved',
+      'barotrauma',
       'counter-strike-2',
       'factorio',
+      'garrys-mod',
+      'insurgency-sandstorm',
+      'left-4-dead-2',
       'minecraft-java',
       'minecraft-modded',
       'palworld',
       'project-zomboid',
       'rust',
+      'satisfactory',
+      'squad',
+      'team-fortress-2',
       'terraria',
+      'unturned',
       'valheim',
     ]);
   });

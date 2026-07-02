@@ -1,0 +1,67 @@
+{
+  "id": "satisfactory",
+  "name": "Satisfactory Dedicated Server",
+  "description": "Satisfactory dedicated server, installed via SteamCMD (anonymous).",
+  "installMethod": "steamcmd",
+  "steam": {
+    "appId": 1690800,
+    "anonymous": true
+  },
+  "os": ["linux"],
+  "ports": [
+    { "name": "Game", "port": 7777, "protocol": "both" },
+    { "name": "Beacon", "port": 15000, "protocol": "udp" },
+    { "name": "Query", "port": 15777, "protocol": "udp" }
+  ],
+  "start": {
+    "executable": "./FactoryServer.sh",
+    "args": [
+      "-Port={{GAME_PORT}}",
+      "-BeaconPort={{BEACON_PORT}}",
+      "-ServerQueryPort={{QUERY_PORT}}",
+      "-log",
+      "-unattended",
+      "-multihome=0.0.0.0"
+    ],
+    "workingDir": "."
+  },
+  "env": {},
+  "stop": {
+    "method": "sigterm",
+    "timeoutSeconds": 60
+  },
+  "console": {
+    "supportsInput": false
+  },
+  "configFiles": [
+    {
+      "path": ".config/Epic/FactoryGame/Saved/SaveGames/server",
+      "description": "Save games and server config, created after first run",
+      "createdByServer": true
+    }
+  ],
+  "variables": [
+    {
+      "key": "GAME_PORT",
+      "label": "Game port (UDP+TCP)",
+      "default": "7777",
+      "required": true,
+      "pattern": "[0-9]{2,5}"
+    },
+    {
+      "key": "BEACON_PORT",
+      "label": "Beacon port (UDP)",
+      "default": "15000",
+      "required": true,
+      "pattern": "[0-9]{2,5}"
+    },
+    {
+      "key": "QUERY_PORT",
+      "label": "Query port (UDP)",
+      "default": "15777",
+      "required": true,
+      "pattern": "[0-9]{2,5}"
+    }
+  ],
+  "notes": "The -unattended flag skips the interactive first-run prompts. A new server still needs to be \"claimed\" (admin password set, save created/loaded) once via the in-game Server Manager UI or its HTTPS API before it's playable."
+}

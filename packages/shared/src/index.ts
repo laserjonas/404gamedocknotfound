@@ -308,28 +308,6 @@ export interface LogsResponseDto {
 }
 
 // ---------------------------------------------------------------------------
-// Steam catalog browsing
-// ---------------------------------------------------------------------------
-
-export interface SteamCatalogEntryDto {
-  appId: number;
-  name: string;
-  /** Set when this app is already installable via one of GameDock's game templates. */
-  templateId: string | null;
-  headerImageUrl: string;
-  storeUrl: string;
-}
-
-export interface SteamCatalogResponseDto {
-  total: number;
-  items: SteamCatalogEntryDto[];
-  /** When the underlying Steam app list was last fetched; null if never fetched yet. */
-  cachedAt: string | null;
-  /** True if a live refresh failed and this is a previously cached (possibly older) result. */
-  stale: boolean;
-}
-
-// ---------------------------------------------------------------------------
 // Audit log / events
 // ---------------------------------------------------------------------------
 
