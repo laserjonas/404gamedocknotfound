@@ -31,3 +31,4 @@ coverage/
 # local tooling state
 .claude/
 ssh-login
+gamedock-login

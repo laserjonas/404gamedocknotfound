@@ -38,7 +38,9 @@ rsync -a --delete \
   "${REPO_DIR}/" "${APP_DIR}/"
 
 cd "${APP_DIR}"
-pnpm install --frozen-lockfile --prod
+# CI=true: pnpm refuses to purge devDependencies from an existing node_modules
+# without a TTY confirmation prompt otherwise, which this script never has.
+CI=true pnpm install --frozen-lockfile --prod
 
 # The API serves the web UI from apps/api/web-dist.
 rm -rf "${APP_DIR}/apps/api/web-dist"
