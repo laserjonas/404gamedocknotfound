@@ -1,0 +1,108 @@
+{
+  "id": "rust",
+  "name": "Rust Dedicated Server",
+  "description": "Rust survival dedicated server, installed via SteamCMD (anonymous). Large download (~25 GB).",
+  "installMethod": "steamcmd",
+  "steam": {
+    "appId": 258550,
+    "anonymous": true
+  },
+  "os": ["linux"],
+  "ports": [
+    { "name": "Game", "port": 28015, "protocol": "udp" },
+    { "name": "Query", "port": 28017, "protocol": "udp" },
+    { "name": "RCON", "port": 28016, "protocol": "tcp" }
+  ],
+  "start": {
+    "executable": "./RustDedicated",
+    "args": [
+      "-batchmode",
+      "+server.hostname",
+      "{{SERVER_NAME}}",
+      "+server.port",
+      "{{GAME_PORT}}",
+      "+server.queryport",
+      "{{QUERY_PORT}}",
+      "+server.identity",
+      "{{IDENTITY}}",
+      "+server.maxplayers",
+      "{{MAX_PLAYERS}}",
+      "+server.worldsize",
+      "{{WORLD_SIZE}}",
+      "+server.seed",
+      "{{SEED}}",
+      "+server.saveinterval",
+      "300"
+    ],
+    "workingDir": "."
+  },
+  "env": {
+    "LD_LIBRARY_PATH": "./RustDedicated_Data/Plugins/x86_64"
+  },
+  "stop": {
+    "method": "command",
+    "command": "quit",
+    "timeoutSeconds": 120
+  },
+  "console": {
+    "supportsInput": true
+  },
+  "configFiles": [
+    {
+      "path": "server",
+      "description": "Server identity folder with cfg files (created after first run)",
+      "createdByServer": true
+    }
+  ],
+  "variables": [
+    {
+      "key": "SERVER_NAME",
+      "label": "Server name",
+      "default": "GameDock Rust",
+      "required": true
+    },
+    {
+      "key": "GAME_PORT",
+      "label": "Game port (UDP)",
+      "default": "28015",
+      "required": true,
+      "pattern": "[0-9]{2,5}"
+    },
+    {
+      "key": "QUERY_PORT",
+      "label": "Query port (UDP)",
+      "default": "28017",
+      "required": true,
+      "pattern": "[0-9]{2,5}"
+    },
+    {
+      "key": "IDENTITY",
+      "label": "Server identity (save folder name)",
+      "default": "gamedock",
+      "required": true,
+      "pattern": "[A-Za-z0-9_-]{1,32}"
+    },
+    {
+      "key": "MAX_PLAYERS",
+      "label": "Max players",
+      "default": "50",
+      "required": true,
+      "pattern": "[0-9]{1,4}"
+    },
+    {
+      "key": "WORLD_SIZE",
+      "label": "World size (1000-6000)",
+      "default": "3000",
+      "required": true,
+      "pattern": "[0-9]{4}"
+    },
+    {
+      "key": "SEED",
+      "label": "Map seed",
+      "default": "12345",
+      "required": true,
+      "pattern": "[0-9]{1,10}"
+    }
+  ],
+  "notes": "For RCON add +rcon.port / +rcon.password / +rcon.web arguments in the startup editor; do not commit the RCON password into shared templates. The quit console command saves the map and shuts down cleanly."
+}

@@ -1,0 +1,90 @@
+{
+  "id": "valheim",
+  "name": "Valheim Dedicated Server",
+  "description": "Viking survival game dedicated server, installed via SteamCMD (anonymous).",
+  "installMethod": "steamcmd",
+  "steam": {
+    "appId": 896660,
+    "anonymous": true
+  },
+  "os": ["linux"],
+  "ports": [
+    { "name": "Game", "port": 2456, "protocol": "udp" },
+    { "name": "Query", "port": 2457, "protocol": "udp" }
+  ],
+  "start": {
+    "executable": "./valheim_server.x86_64",
+    "args": [
+      "-nographics",
+      "-batchmode",
+      "-name",
+      "{{SERVER_NAME}}",
+      "-port",
+      "{{GAME_PORT}}",
+      "-world",
+      "{{WORLD_NAME}}",
+      "-password",
+      "{{SERVER_PASSWORD}}",
+      "-public",
+      "{{PUBLIC}}",
+      "-savedir",
+      "./saves"
+    ],
+    "workingDir": "."
+  },
+  "env": {
+    "LD_LIBRARY_PATH": "./linux64",
+    "SteamAppId": "892970"
+  },
+  "stop": {
+    "method": "sigint",
+    "timeoutSeconds": 60
+  },
+  "console": {
+    "supportsInput": false
+  },
+  "configFiles": [
+    {
+      "path": "saves/worlds_local",
+      "description": "World save files (created after first run)",
+      "createdByServer": true
+    }
+  ],
+  "variables": [
+    {
+      "key": "SERVER_NAME",
+      "label": "Server name",
+      "default": "GameDock Valheim",
+      "required": true
+    },
+    {
+      "key": "WORLD_NAME",
+      "label": "World name",
+      "default": "Dedicated",
+      "required": true,
+      "pattern": "[A-Za-z0-9_-]{1,32}"
+    },
+    {
+      "key": "SERVER_PASSWORD",
+      "label": "Server password (min. 5 characters)",
+      "default": "changeme",
+      "required": true,
+      "secret": true
+    },
+    {
+      "key": "GAME_PORT",
+      "label": "Game port (UDP, query uses port+1)",
+      "default": "2456",
+      "required": true,
+      "pattern": "[0-9]{2,5}"
+    },
+    {
+      "key": "PUBLIC",
+      "label": "List in public server browser (1 = yes, 0 = no)",
+      "default": "0",
+      "required": true,
+      "pattern": "[01]"
+    }
+  ],
+  "notes": "Valheim requires the password to differ from the server name and be at least 5 characters. The query port is always game port + 1; open both in the firewall."
+}

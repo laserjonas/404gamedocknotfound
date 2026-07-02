@@ -1,0 +1,68 @@
+{
+  "id": "project-zomboid",
+  "name": "Project Zomboid Dedicated Server",
+  "description": "Zombie survival sandbox dedicated server, installed via SteamCMD (anonymous).",
+  "installMethod": "steamcmd",
+  "steam": {
+    "appId": 380870,
+    "anonymous": true
+  },
+  "os": ["linux"],
+  "ports": [
+    { "name": "Game", "port": 16261, "protocol": "udp" },
+    { "name": "Direct connections", "port": 16262, "protocol": "udp" }
+  ],
+  "start": {
+    "executable": "./start-server.sh",
+    "args": [
+      "-servername",
+      "{{SERVER_NAME}}",
+      "-adminusername",
+      "{{ADMIN_USER}}",
+      "-adminpassword",
+      "{{ADMIN_PASSWORD}}",
+      "-cachedir={{GAMEDOCK_INSTANCE_DIR}}/zomboid-data"
+    ],
+    "workingDir": "."
+  },
+  "env": {},
+  "stop": {
+    "method": "command",
+    "command": "quit",
+    "timeoutSeconds": 90
+  },
+  "console": {
+    "supportsInput": true
+  },
+  "configFiles": [
+    {
+      "path": "zomboid-data/Server",
+      "description": "Server INI and sandbox settings (created after first run)",
+      "createdByServer": true
+    }
+  ],
+  "variables": [
+    {
+      "key": "SERVER_NAME",
+      "label": "Server / save name",
+      "default": "gamedock",
+      "required": true,
+      "pattern": "[A-Za-z0-9_-]{1,32}"
+    },
+    {
+      "key": "ADMIN_USER",
+      "label": "Admin username",
+      "default": "admin",
+      "required": true,
+      "pattern": "[A-Za-z0-9_-]{1,32}"
+    },
+    {
+      "key": "ADMIN_PASSWORD",
+      "label": "Admin password",
+      "default": "changeme",
+      "required": true,
+      "secret": true
+    }
+  ],
+  "notes": "First start creates config files under zomboid-data/Server. Type console commands (e.g. save, players) directly in the console tab; the server stops cleanly with the quit command."
+}

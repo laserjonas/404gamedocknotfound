@@ -1,0 +1,86 @@
+{
+  "id": "terraria",
+  "name": "Terraria Dedicated Server",
+  "description": "Official Terraria dedicated server (non-Steam) downloaded from terraria.org.",
+  "installMethod": "url",
+  "urlInstall": {
+    "url": "https://terraria.org/api/download/pc-dedicated-server/terraria-server-{{SERVER_VERSION}}.zip",
+    "archive": "zip"
+  },
+  "os": ["linux"],
+  "ports": [{ "name": "Game", "port": 7777, "protocol": "tcp" }],
+  "start": {
+    "executable": "./{{SERVER_VERSION}}/Linux/TerrariaServer.bin.x86_64",
+    "args": [
+      "-port",
+      "{{GAME_PORT}}",
+      "-players",
+      "{{MAX_PLAYERS}}",
+      "-world",
+      "{{GAMEDOCK_INSTANCE_DIR}}/worlds/{{WORLD_NAME}}.wld",
+      "-autocreate",
+      "{{WORLD_SIZE}}",
+      "-worldname",
+      "{{WORLD_NAME}}",
+      "-password",
+      "{{SERVER_PASSWORD}}"
+    ],
+    "workingDir": "."
+  },
+  "env": {},
+  "stop": {
+    "method": "command",
+    "command": "exit",
+    "timeoutSeconds": 60
+  },
+  "console": {
+    "supportsInput": true
+  },
+  "configFiles": [{ "path": "worlds", "description": "World files", "createdByServer": true }],
+  "setupFiles": [{ "path": "worlds/.keep", "content": "" }],
+  "variables": [
+    {
+      "key": "SERVER_VERSION",
+      "label": "Server version (as used in the terraria.org download URL)",
+      "default": "1449",
+      "required": true,
+      "pattern": "[0-9]{3,6}"
+    },
+    {
+      "key": "GAME_PORT",
+      "label": "Game port (TCP)",
+      "default": "7777",
+      "required": true,
+      "pattern": "[0-9]{2,5}"
+    },
+    {
+      "key": "MAX_PLAYERS",
+      "label": "Max players",
+      "default": "8",
+      "required": true,
+      "pattern": "[0-9]{1,3}"
+    },
+    {
+      "key": "WORLD_NAME",
+      "label": "World name",
+      "default": "gamedock",
+      "required": true,
+      "pattern": "[A-Za-z0-9_-]{1,32}"
+    },
+    {
+      "key": "WORLD_SIZE",
+      "label": "World size when auto-creating (1 = small, 2 = medium, 3 = large)",
+      "default": "2",
+      "required": true,
+      "pattern": "[123]"
+    },
+    {
+      "key": "SERVER_PASSWORD",
+      "label": "Server join password",
+      "default": "changeme",
+      "required": true,
+      "secret": true
+    }
+  ],
+  "notes": "Check https://terraria.org/ for the current server version number (e.g. 1449 = 1.4.4.9). The world is auto-created on first start. Use the exit console command for a clean save + shutdown."
+}

@@ -1,0 +1,41 @@
+[Unit]
+Description=GameDock Manager - game server management panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gamedock
+Group=gamedock
+WorkingDirectory=/opt/gamedock
+# SteamCMD writes its own config/state under $HOME (~/Steam, ~/.steam). The
+# gamedock user's real home (/home/gamedock) is masked by ProtectHome below,
+# so point HOME at a writable directory under the data dir instead - without
+# this, steamcmd installs fail with "Missing configuration".
+Environment=HOME=/var/lib/gamedock/steamcmd-home
+EnvironmentFile=/opt/gamedock/.env
+ExecStart=/usr/bin/node /opt/gamedock/apps/api/dist/index.js
+Restart=on-failure
+RestartSec=5
+# Give game servers time to shut down gracefully.
+TimeoutStopSec=90
+KillMode=mixed
+
+# --- Hardening -------------------------------------------------------------
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/gamedock /var/log/gamedock /opt/gamedock
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# Game servers can be hungry; raise limits as needed.
+LimitNOFILE=65536
+TasksMax=4096
+
+[Install]
+WantedBy=multi-user.target
