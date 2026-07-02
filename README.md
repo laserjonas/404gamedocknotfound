@@ -17,6 +17,9 @@ from a clean web interface.
   Starter templates: Valheim, Project Zomboid, Rust, Counter-Strike 2, Palworld,
   Terraria, Minecraft Java (with a version picker), Minecraft Modded (modpack
   server packs), Factorio
+- **Steam catalog browser** — browse every Steam "Dedicated Server" tool
+  (anonymous SteamCMD login, no Steam account needed) right from the New server
+  page, cross-referenced against installed templates
 - **File manager** — browse, edit, upload, delete files; strictly sandboxed to each
   instance directory
 - **Backups** — `.tar.gz` archives with optional excludes, restore, delete

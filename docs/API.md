@@ -106,6 +106,12 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 | GET    | `/system/update`       | admin  | Check for updates on the configured git branch                    |
 | POST   | `/system/update`       | admin  | Clone + build + swap in the latest commit → `{job}`, then restart |
 
+## Steam catalog
+
+| Method | Path                                    | Role   | Description                                                                                                    |
+| ------ | --------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------- |
+| GET    | `/steam/catalog?search=&limit=&offset=` | viewer | Browse Steam "Dedicated Server" tools (anonymous SteamCMD login), cross-referenced against installed templates |
+
 ## Events
 
 | Method | Path             | Role   | Description                                                                        |

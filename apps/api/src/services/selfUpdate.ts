@@ -49,7 +49,12 @@ function runTool(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, {
+      cwd,
+      env,
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     const handle = (chunk: Buffer) => {
       for (const line of chunk.toString('utf8').split(/\r?\n/)) {
         if (line.trim()) onLog(line);

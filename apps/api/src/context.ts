@@ -21,6 +21,7 @@ import { InstanceService } from './services/instances.js';
 import { SystemStatsService } from './services/systemStats.js';
 import { CrashRestartTracker } from './services/crashRestart.js';
 import { SelfUpdateService } from './services/selfUpdate.js';
+import { SteamCatalogService } from './services/steamCatalog.js';
 import { toAuditDto } from './db/repositories/audit.js';
 
 const CRASH_RESTART_LIMITS = { maxRestarts: 4, windowMs: 5 * 60 * 1000 };
@@ -50,6 +51,7 @@ export interface AppContext {
   instances: InstanceService;
   systemStats: SystemStatsService;
   selfUpdate: SelfUpdateService;
+  steamCatalog: SteamCatalogService;
   audit(entry: {
     userId?: string | null;
     username?: string | null;
@@ -123,6 +125,7 @@ export function createContext(config: AppConfig, logger: Logger): AppContext {
     logger,
   );
   const systemStats = new SystemStatsService();
+  const steamCatalog = new SteamCatalogService(config.dataDir, templates, logger);
   const selfUpdate = new SelfUpdateService({
     repoUrl: config.updateRepoUrl,
     branch: config.updateBranch,
@@ -199,6 +202,7 @@ export function createContext(config: AppConfig, logger: Logger): AppContext {
     instances,
     systemStats,
     selfUpdate,
+    steamCatalog,
     audit,
     async shutdown() {
       clearInterval(sessionCleanup);

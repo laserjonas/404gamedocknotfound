@@ -647,6 +647,80 @@ select {
   font-size: 13px;
 }
 
+/* Steam catalog browser */
+.steam-catalog-search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 18px 0 12px;
+}
+.steam-catalog-search input {
+  flex: 1;
+  max-width: 360px;
+}
+.steam-catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.steam-catalog-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  text-align: left;
+  color: var(--text);
+  font-family: inherit;
+  padding: 0;
+}
+.steam-catalog-card.is-installable {
+  cursor: pointer;
+}
+.steam-catalog-card.is-installable:hover {
+  border-color: var(--accent);
+}
+.steam-catalog-card.is-disabled {
+  opacity: 0.6;
+}
+.steam-catalog-card img {
+  width: 100%;
+  aspect-ratio: 460 / 215;
+  object-fit: cover;
+  display: block;
+  background: var(--bg-inset, #111);
+}
+.steam-catalog-card-body {
+  padding: 10px 12px;
+}
+.steam-catalog-card-name {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.steam-catalog-card-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.steam-catalog-card-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-bottom: 6px;
+}
+.steam-catalog-card-badge.installable {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+.steam-catalog-card-badge.not-supported {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-muted);
+}
+
 /* Files */
 .file-toolbar {
   display: flex;
