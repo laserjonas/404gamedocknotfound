@@ -22,7 +22,7 @@ import { registerSteamRoutes } from './routes/steam.js';
 
 export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   const app = Fastify({
-    loggerInstance: ctx.logger.child({ component: 'http' }) as FastifyBaseLogger,
+    loggerInstance: ctx.componentLogger('http') as FastifyBaseLogger,
     trustProxy: true,
     bodyLimit: 5 * 1024 * 1024,
     disableRequestLogging: !ctx.config.isProduction ? false : true,

@@ -20,6 +20,8 @@ from a clean web interface.
 - **Steam catalog browser** — browse every Steam "Dedicated Server" tool
   (anonymous SteamCMD login, no Steam account needed) right from the New server
   page, cross-referenced against installed templates
+- **Logs page** — runtime-adjustable log level (no restart) plus a live,
+  filterable view of structured application logs, tagged by subsystem
 - **File manager** — browse, edit, upload, delete files; strictly sandboxed to each
   instance directory
 - **Backups** — `.tar.gz` archives with optional excludes, restore, delete

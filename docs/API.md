@@ -106,6 +106,14 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 | GET    | `/system/update`       | admin  | Check for updates on the configured git branch                    |
 | POST   | `/system/update`       | admin  | Clone + build + swap in the latest commit → `{job}`, then restart |
 
+## Application logs
+
+| Method | Path                                    | Role  | Description                                                                                                                   |
+| ------ | --------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/system/logs?limit=&level=&component=` | admin | Current log level + recent structured log entries (in-memory, last ~2000)                                                     |
+| GET    | `/system/logs/stream`                   | admin | **SSE** live tail of new log entries                                                                                          |
+| PATCH  | `/system/logs/level`                    | admin | Body `{level}` (`trace`\|`debug`\|`info`\|`warn`\|`error`\|`fatal`\|`silent`) — applies immediately, persists across restarts |
+
 ## Steam catalog
 
 | Method | Path                                    | Role   | Description                                                                                                    |

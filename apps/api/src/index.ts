@@ -1,11 +1,12 @@
 import { loadConfig } from './config.js';
-import { createLogger } from './logger.js';
+import { createLogger, LogRingBuffer } from './logger.js';
 import { createContext } from './context.js';
 import { buildApp } from './app.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const logger = createLogger(config.isProduction);
+  const logBuffer = new LogRingBuffer();
+  const { logger, registry } = createLogger(config.isProduction, logBuffer);
 
   if (process.getuid?.() === 0) {
     logger.error(
@@ -14,7 +15,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const ctx = createContext(config, logger);
+  const ctx = createContext(config, logger, registry, logBuffer);
 
   // Jobs cannot survive restarts; mark leftovers as failed.
   ctx.jobs.recoverAfterRestart();

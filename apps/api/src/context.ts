@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import type { AppConfig } from './config.js';
-import type { Logger } from './logger.js';
+import type { Logger, LoggerRegistry, LogRingBuffer } from './logger.js';
 import { createDatabase, type DatabaseClient } from './db/database.js';
 import { runMigrations } from './db/migrations.js';
 import { UserRepository } from './db/repositories/users.js';
@@ -22,6 +22,7 @@ import { SystemStatsService } from './services/systemStats.js';
 import { CrashRestartTracker } from './services/crashRestart.js';
 import { SelfUpdateService } from './services/selfUpdate.js';
 import { SteamCatalogService } from './services/steamCatalog.js';
+import { LogService } from './services/logs.js';
 import { toAuditDto } from './db/repositories/audit.js';
 
 const CRASH_RESTART_LIMITS = { maxRestarts: 4, windowMs: 5 * 60 * 1000 };
@@ -52,6 +53,9 @@ export interface AppContext {
   systemStats: SystemStatsService;
   selfUpdate: SelfUpdateService;
   steamCatalog: SteamCatalogService;
+  logs: LogService;
+  /** Creates a tagged child logger and registers it so runtime level changes reach it too. */
+  componentLogger(name: string): Logger;
   audit(entry: {
     userId?: string | null;
     username?: string | null;
@@ -63,7 +67,12 @@ export interface AppContext {
   shutdown(): Promise<void>;
 }
 
-export function createContext(config: AppConfig, logger: Logger): AppContext {
+export function createContext(
+  config: AppConfig,
+  logger: Logger,
+  logRegistry: LoggerRegistry,
+  logBuffer: LogRingBuffer,
+): AppContext {
   const db = createDatabase(config.databaseUrl, config.dataDir);
   runMigrations(db, logger);
 
@@ -84,8 +93,16 @@ export function createContext(config: AppConfig, logger: Logger): AppContext {
     events.publish({ kind: 'audit', entry: toAuditDto(row) });
   };
 
+  // Apply a previously-saved log level before creating component child
+  // loggers, so they all start at the right verbosity (pino children
+  // snapshot the parent's level once at creation, see logger.ts).
+  const logs = new LogService(logBuffer, logRegistry, repos.settings);
+  logs.restoreLevel();
+  const componentLogger: AppContext['componentLogger'] = (name) =>
+    logRegistry.register(logger.child({ component: name }));
+
   const auth = new AuthService(repos.users, repos.sessions);
-  const templates = new TemplateService(db, config.dataDir, logger);
+  const templates = new TemplateService(db, config.dataDir, componentLogger('templates'));
   templates.reload();
 
   const processes = new ProcessManager(
@@ -108,10 +125,10 @@ export function createContext(config: AppConfig, logger: Logger): AppContext {
         });
       },
     },
-    logger,
+    componentLogger('process-manager'),
   );
 
-  const jobService = new JobService(repos.jobs, repos.instances, events, logger);
+  const jobService = new JobService(repos.jobs, repos.instances, events, componentLogger('jobs'));
   const backups = new BackupService(config.backupDir, repos.backups);
   const files = new FileService(config.maxUploadBytes);
   const instances = new InstanceService(
@@ -122,10 +139,14 @@ export function createContext(config: AppConfig, logger: Logger): AppContext {
     processes,
     backups,
     config,
-    logger,
+    componentLogger('instances'),
   );
   const systemStats = new SystemStatsService();
-  const steamCatalog = new SteamCatalogService(config.dataDir, templates, logger);
+  const steamCatalog = new SteamCatalogService(
+    config.dataDir,
+    templates,
+    componentLogger('steam-catalog'),
+  );
   const selfUpdate = new SelfUpdateService({
     repoUrl: config.updateRepoUrl,
     branch: config.updateBranch,
@@ -203,6 +224,8 @@ export function createContext(config: AppConfig, logger: Logger): AppContext {
     systemStats,
     selfUpdate,
     steamCatalog,
+    logs,
+    componentLogger,
     audit,
     async shutdown() {
       clearInterval(sessionCleanup);

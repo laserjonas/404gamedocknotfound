@@ -287,6 +287,27 @@ export interface DependencyStatusDto {
 }
 
 // ---------------------------------------------------------------------------
+// Application logs
+// ---------------------------------------------------------------------------
+
+export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal' | 'silent';
+
+export interface LogEntryDto {
+  time: number;
+  level: LogLevel;
+  /** Subsystem that produced this line, e.g. "instances", "jobs", "http". Null for uncategorized root logs. */
+  component: string | null;
+  msg: string;
+  /** Extra structured fields attached to the log call (instanceId, err, etc.). */
+  extra?: Record<string, unknown>;
+}
+
+export interface LogsResponseDto {
+  level: LogLevel;
+  entries: LogEntryDto[];
+}
+
+// ---------------------------------------------------------------------------
 // Steam catalog browsing
 // ---------------------------------------------------------------------------
 

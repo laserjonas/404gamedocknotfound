@@ -9,6 +9,7 @@ import { CreateServerPage } from './pages/CreateServerPage';
 import { ServerDetailPage } from './pages/ServerDetailPage';
 import { UsersPage } from './pages/UsersPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { LogsPage } from './pages/LogsPage';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -57,6 +58,14 @@ export function App() {
               }
             />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route
+              path="/logs"
+              element={
+                <RequireAdmin>
+                  <LogsPage />
+                </RequireAdmin>
+              }
+            />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

@@ -34,6 +34,7 @@ export function Layout() {
           </NavLink>
           <NavLink to="/servers">Servers</NavLink>
           {hasRole('admin') && <NavLink to="/users">Users</NavLink>}
+          {hasRole('admin') && <NavLink to="/logs">Logs</NavLink>}
           <NavLink to="/settings">Settings</NavLink>
         </nav>
         <div className="sidebar-footer">
