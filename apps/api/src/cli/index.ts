@@ -245,7 +245,12 @@ async function main(): Promise<void> {
           continue;
         }
         try {
+          // provision() only chowns the top-level instance dir (right for a
+          // brand-new, empty instance); repair() recursively re-chowns
+          // everything already installed inside it, which migrating an
+          // existing instance needs.
           const { username, uid } = await linuxUsers.provision(row.id);
+          await linuxUsers.repair(row.id);
           await instances.update(row.id, { linuxUsername: username, linuxUid: uid });
           console.log(`  provisioned: ${row.name} (${row.id}) -> ${username} (uid ${uid})`);
         } catch (err) {
@@ -263,9 +268,20 @@ async function main(): Promise<void> {
         console.log('repair-permissions is a no-op on Windows.');
         break;
       }
-      // Tighten data dirs: owner rwx only (the gamedock user).
-      const dirs = [config.dataDir, config.instanceDir, config.backupDir, config.logDir];
-      for (const dir of dirs) {
+      // dataDir and instanceDir need "other" execute (traverse-only, no
+      // read/list) so a per-instance dedicated Linux user (opt-in isolation
+      // feature) can reach its own instance dir - it isn't a member of the
+      // gamedock group. backupDir/logDir don't need this: the game process
+      // never touches them directly.
+      if (existsSync(config.dataDir)) {
+        chmodSync(config.dataDir, 0o751);
+        console.log(`chmod 751 ${config.dataDir}`);
+      }
+      if (existsSync(config.instanceDir)) {
+        chmodSync(config.instanceDir, 0o751);
+        console.log(`chmod 751 ${config.instanceDir}`);
+      }
+      for (const dir of [config.backupDir, config.logDir]) {
         if (!existsSync(dir)) continue;
         chmodSync(dir, 0o750);
         console.log(`chmod 750 ${dir}`);
@@ -275,9 +291,19 @@ async function main(): Promise<void> {
         chmodSync(dbPath, 0o600);
         console.log(`chmod 600 ${dbPath}`);
       }
-      // Instance dirs: 750 each.
+      // Instance dirs: 750 each, except ones with a dedicated Linux user
+      // (opt-in isolation) - those are owned <user>:gamedock, mode 2770,
+      // managed by the isolation feature itself, not this command.
       if (existsSync(config.instanceDir)) {
+        const db = await openDb();
+        const isolated = new Set(
+          (await new InstanceRepository(db).list())
+            .filter((row) => row.linux_username)
+            .map((row) => row.id),
+        );
+        await db.close();
         for (const entry of readdirSync(config.instanceDir)) {
+          if (isolated.has(entry)) continue;
           const p = join(config.instanceDir, entry);
           if (statSync(p).isDirectory()) {
             chmodSync(p, 0o750);

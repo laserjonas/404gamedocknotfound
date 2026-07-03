@@ -13,6 +13,7 @@ fi
 
 GAMEDOCK_USER="${GAMEDOCK_USER:-gamedock}"
 APP_DIR="${APP_DIR:-/opt/gamedock}"
+DATA_DIR="${DATA_DIR:-/var/lib/gamedock}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if ! id -u "${GAMEDOCK_USER}" >/dev/null 2>&1; then
@@ -75,6 +76,13 @@ groupadd --system gamedock-instances 2>/dev/null || true
 # Already rsynced into place by the copy above - just fix ownership/mode.
 chown root:root "${APP_DIR}/scripts/gamedock-instance-user"
 chmod 0750 "${APP_DIR}/scripts/gamedock-instance-user"
+# DATA_DIR and its instances/ dir need "other" execute (traverse-only, no
+# read/list) so a per-instance dedicated user can reach its own instance
+# dir - it isn't a member of the gamedock group. Idempotent/self-healing:
+# re-applies this even on hosts whose install.sh predates this fix.
+if [[ -d "${DATA_DIR}" ]]; then
+  chmod 751 "${DATA_DIR}" "${DATA_DIR}/instances"
+fi
 SUDOERS_TMP="$(mktemp)"
 cat >"${SUDOERS_TMP}" <<SUDOEOF
 # Managed by GameDock (scripts/deploy.sh) - do not edit by hand.

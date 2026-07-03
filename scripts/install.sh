@@ -62,7 +62,14 @@ mkdir -p "${DATA_DIR}/instances" "${DATA_DIR}/backups" "${DATA_DIR}/templates" "
 mkdir -p "${DATA_DIR}/steamcmd-home"
 mkdir -p "${LOG_DIR}"
 chown -R "${GAMEDOCK_USER}:${GAMEDOCK_USER}" "${DATA_DIR}" "${LOG_DIR}"
-chmod 750 "${DATA_DIR}" "${DATA_DIR}/instances" "${DATA_DIR}/backups" "${LOG_DIR}"
+chmod 750 "${DATA_DIR}/backups" "${LOG_DIR}"
+# ${DATA_DIR} and its instances/ dir need "other" execute (traverse-only, no
+# read/list) so a per-instance dedicated Linux user (see
+# gamedock-instance-user, opt-in isolation feature) can reach its own
+# instance directory - it's not a member of the gamedock group. This does
+# NOT grant listing or reading; each instance dir's own permissions (owned
+# <user>:gamedock, mode 2770) are what actually restricts access.
+chmod 751 "${DATA_DIR}" "${DATA_DIR}/instances"
 
 echo "==> Optional: SteamCMD"
 echo "    SteamCMD is needed for Steam-based game servers (Valheim, Rust, CS2, ...)."

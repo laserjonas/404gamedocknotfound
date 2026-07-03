@@ -69,7 +69,13 @@ The last active admin cannot be demoted, disabled or deleted.
   logs. Instance directories are owned `<dedicated-user>:gamedock` mode
   `2770` (setgid) - the dedicated user gets full access to only its own
   directory, `gamedock` keeps group access for installs/backups/the file
-  manager, and no other instance's user has any access at all.
+  manager, and no other instance's user has any access at all. The parent
+  `GAMEDOCK_DATA_DIR` and its `instances/` subdirectory additionally need
+  "other" **execute-only** permission (mode `751`, no read/list) so a
+  dedicated user - not a member of the `gamedock` group - can traverse down
+  into its own instance directory at all; this doesn't expose anything, since
+  listing the parent is still blocked and each instance's own directory
+  remains the actual access boundary.
   - This requires `gamedock` to run processes as those dedicated users via
     `sudo`, scoped by a `Runas_Alias` in `/etc/sudoers.d/gamedock-instances`
     to a fixed, non-root group (`gamedock-instances`) - `gamedock` can never
