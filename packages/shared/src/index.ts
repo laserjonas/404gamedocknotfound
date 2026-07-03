@@ -358,6 +358,8 @@ export interface HealthDto {
   status: 'ok';
   uptime: number;
   version: string;
+  /** Currently deployed commit, from the last self-update (if ever used); null otherwise. */
+  commit: string | null;
 }
 
 export interface UpdateStatusDto {
