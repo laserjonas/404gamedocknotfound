@@ -71,11 +71,13 @@ button has anything to work from) or recover if self-update itself is broken:
 ```bash
 cd /path/to/checkout
 git pull
-sudo bash scripts/deploy.sh     # rebuilds, syncs /opt/gamedock, restarts service
+sudo bash scripts/install.sh    # rebuilds, syncs /opt/gamedock, restarts service
 ```
 
-`deploy.sh` never overwrites an existing `/opt/gamedock/.env`. Database migrations
-run automatically at service start either way.
+`install.sh` is idempotent and safe to re-run: it never overwrites an existing
+`/opt/gamedock/.env`, and skips prompts for anything already answered by an
+environment variable (see [INSTALL_DEBIAN.md](INSTALL_DEBIAN.md)). Database
+migrations run automatically at service start either way.
 
 ## Running in Docker
 
@@ -136,8 +138,8 @@ systemd unit):
 
 ```bash
 cd /opt/gamedock
-sudo bash scripts/deploy.sh   # installs the sudoers rule + helper script,
-                               # and picks up NoNewPrivileges=false
+sudo bash scripts/install.sh   # installs the sudoers rule + helper script,
+                                # and picks up NoNewPrivileges=false
 ```
 
 **Stop every running instance first.** Migrating a currently-running

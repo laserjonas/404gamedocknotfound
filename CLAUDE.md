@@ -20,9 +20,11 @@ Monorepo: pnpm workspaces + TypeScript, Node >= 20.
   (`templates/*.json`): install method (steamcmd app id, or generic `url` +
   archive), start/stop commands, variables, ports. Adding a game = adding a
   template JSON, usually no code changes. See `docs/GAME_TEMPLATES.md`.
-- `scripts/` — `install.sh` (host deps + directory layout), `install-steamcmd.sh`,
-  `deploy.sh` (build + rsync to `/opt/gamedock` + restart service — bootstrap/
-  recovery path only, see below), `systemd/gamedock.service`.
+- `scripts/` — `install.sh` (single-script Debian bootstrap: system deps,
+  `gamedock` user/directories, build + rsync to `/opt/gamedock`, optional
+  Nginx+TLS reverse proxy with a domain prompt, optional first-admin
+  creation — safe to re-run, see below), `install-steamcmd.sh` (also called
+  automatically from `install.sh` unless declined), `systemd/gamedock.service`.
 - `docs/` — INSTALL_DEBIAN.md, DEPLOYMENT.md, API.md, GAME_TEMPLATES.md,
   SECURITY.md. Keep these in sync with routes/config/templates when they change.
 
@@ -64,9 +66,7 @@ pnpm lint
   exits so systemd (`Restart=always`) restarts it on the new build. This runs
   as the unprivileged service user (no SSH/root).
 - **Do not SSH-deploy routine changes to the VM.** The user triggers updates
-  themselves via the Update button. `scripts/deploy.sh` / manual SSH is only for
+  themselves via the Update button. `scripts/install.sh` / manual SSH is only for
   bootstrapping a fresh host or recovering a broken self-update — treat it as a
   last resort, not the default path, and confirm with the user first.
-- A temporary `verifytemp` admin account still exists on the VM from earlier API
-  testing — flag to the user that it should be removed via the Users page
-  whenever convenient (do not delete it directly).
+

@@ -87,7 +87,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   registerEventRoutes(app, ctx);
 
   // Serve the built web UI in production (apps/web/dist copied to ../web-dist
-  // by deploy.sh, or resolved from the monorepo layout).
+  // by install.sh, or resolved from the monorepo layout).
   const candidates = [
     join(dirname(fileURLToPath(import.meta.url)), '..', 'web-dist'),
     join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'web', 'dist'),

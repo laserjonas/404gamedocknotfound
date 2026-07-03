@@ -28,7 +28,7 @@ from a clean web interface.
 - **Backups** — `.tar.gz` archives with optional excludes, restore, delete
 - **Jobs** — long-running installs/updates/backups run as tracked jobs with live logs
 - **Users & roles** — admin / operator / viewer with role-based access control,
-  optional per-user TOTP two-factor authentication
+  optional per-user TOTP two-factor authentication and passkey (WebAuthn) login
 - **Security** — bcrypt password hashing, session cookies + CSRF tokens, login
   rate limiting, audit log with automatic retention, path traversal protection,
   no shell command construction, never runs as root
@@ -43,7 +43,7 @@ apps/api                Fastify backend + process manager + CLI
 apps/web                React web UI
 packages/shared         Shared TypeScript types
 packages/game-templates Game template schema + built-in templates
-scripts/                Debian install/deploy scripts, systemd unit, nginx example
+scripts/                Debian install script, systemd unit, nginx example
 docs/                   Documentation
 ```
 
@@ -62,14 +62,16 @@ Open http://localhost:5173 and sign in.
 ## Production install (Debian 12/13)
 
 ```bash
-sudo bash scripts/install.sh           # system deps, gamedock user, directories
-sudo bash scripts/install-steamcmd.sh  # optional: SteamCMD for Steam games
-sudo bash scripts/deploy.sh            # build, install to /opt/gamedock, systemd
-sudo -u gamedock bash -c 'cd /opt/gamedock && pnpm gamedock user:create-admin'
+sudo bash scripts/install.sh
 ```
 
-The panel listens on `127.0.0.1:8340` by default — put Nginx or Caddy with TLS in
-front of it (see `scripts/nginx/gamedock.conf.example`). Full guide:
+One script, run once from a checkout of this repo: installs system dependencies
+(including SteamCMD, if you want it), creates the `gamedock` user/directories,
+builds and deploys the app, optionally sets up Nginx as a TLS reverse proxy
+(asks for a domain name, and whether to use Let's Encrypt or a self-signed
+certificate), and optionally creates the first admin user — by the time it
+exits, the panel is up and running under systemd. Safe to re-run any time
+(e.g. to add Nginx after the fact, or as a recovery path). Full guide:
 [docs/INSTALL_DEBIAN.md](docs/INSTALL_DEBIAN.md).
 
 ## Documentation

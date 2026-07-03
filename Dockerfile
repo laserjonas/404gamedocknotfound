@@ -2,17 +2,17 @@
 
 # GameDock Manager container image.
 #
-# The bare-metal install (scripts/install.sh + deploy.sh) is still the right
-# choice if you want game servers running directly on the host's network
-# stack; this image is the alternative on-ramp for anyone who'd rather run
-# GameDock (and optionally its game server instances - see docs/DEPLOYMENT.md
-# for the tradeoffs) inside a container.
+# The bare-metal install (scripts/install.sh) is still the right choice if you
+# want game servers running directly on the host's network stack; this image
+# is the alternative on-ramp for anyone who'd rather run GameDock (and
+# optionally its game server instances - see docs/DEPLOYMENT.md for the
+# tradeoffs) inside a container.
 
 ARG NODE_VERSION=22
 
 # ---------------------------------------------------------------------------
 # Build stage: compiles TypeScript, bundles the web UI, then prunes back to
-# production-only dependencies. Mirrors scripts/deploy.sh's build steps
+# production-only dependencies. Mirrors scripts/install.sh's build steps
 # exactly, including the CI=true fix for pnpm's non-interactive purge guard.
 # ---------------------------------------------------------------------------
 FROM node:${NODE_VERSION}-bookworm AS build

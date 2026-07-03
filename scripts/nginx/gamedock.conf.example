@@ -1,5 +1,10 @@
 # Example Nginx reverse proxy for GameDock Manager.
-# Place in /etc/nginx/sites-available/gamedock and symlink to sites-enabled.
+#
+# scripts/install.sh already generates and installs this automatically (with
+# either a Let's Encrypt or a self-signed certificate) if you answer yes to
+# its Nginx prompt - use this file only for manual setups (e.g. Caddy users
+# adapting it, or custom Nginx configs). Place in
+# /etc/nginx/sites-available/gamedock and symlink to sites-enabled.
 # Get TLS certificates with certbot: certbot --nginx -d panel.example.com
 
 server {
