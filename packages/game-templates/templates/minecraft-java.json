@@ -69,5 +69,5 @@
       "pattern": "[0-9]{1,5}[MG]"
     }
   ],
-  "notes": "Requires Java 21+ on the host (install.sh installs it). To change the server version later: edit the Minecraft version field in Settings, then click Update files to download the new server.jar. You must set ACCEPT_EULA to true (accepting the Minecraft EULA) before the server will start."
+  "notes": "The required JDK (e.g. Java 21 or newer for recent releases) is auto-detected from the selected version's Mojang metadata and downloaded automatically - no host Java install needed. To change the server version later: edit the Minecraft version field in Settings, then click Update files to download the new server.jar and re-resolve the matching JDK. You must set ACCEPT_EULA to true (accepting the Minecraft EULA) before the server will start."
 }

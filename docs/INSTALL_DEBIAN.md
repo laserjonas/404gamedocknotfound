@@ -16,7 +16,9 @@ This single script does everything needed to get a running panel:
 
 - System packages: Node.js 22 LTS (NodeSource) + pnpm, `tar`/`unzip`/`xz-utils`
   (backups and non-Steam installers), `lib32gcc-s1`/`lib32stdc++6` (required by
-  SteamCMD), OpenJDK 21 or 17 headless (Minecraft Java servers), `openssl`.
+  SteamCMD), OpenJDK 21 or 17 headless (fallback for modded Minecraft
+  modpacks' bundled run.sh - vanilla Minecraft Java servers auto-download
+  their own matching JDK per version instead), `openssl`.
 - Asks whether to install **SteamCMD** (needed for Steam-based games - Valheim,
   Rust, CS2, ...); answering yes enables the i386 architecture and `non-free`
   component and installs it, same as running `install-steamcmd.sh` directly.

@@ -89,10 +89,11 @@ apt-get install -y --no-install-recommends \
   python3 \
   lib32gcc-s1 lib32stdc++6
 
-echo "==> Installing Java (for Minecraft servers)"
+echo "==> Installing a fallback host Java (for modpack run.sh scripts - vanilla Minecraft"
+echo "    Java servers auto-download their own matching JDK per version, see GAME_TEMPLATES.md)"
 apt-get install -y --no-install-recommends openjdk-21-jre-headless \
   || apt-get install -y --no-install-recommends openjdk-17-jre-headless \
-  || echo "WARNING: no OpenJDK package found; install Java manually for Minecraft servers"
+  || echo "WARNING: no OpenJDK package found; install Java manually for modded Minecraft servers"
 
 echo "==> Installing Node.js 22 LTS (NodeSource)"
 if ! command -v node >/dev/null 2>&1 || [[ "$(node --version | cut -c2-3)" -lt 20 ]]; then
