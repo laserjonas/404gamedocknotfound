@@ -1,4 +1,4 @@
-# GameDock Manager
+<img src="docs/images/gamedock-logo-banner.png" alt="GameDock Manager" width="420" />
 
 [![CI](https://github.com/laserjonas/404gamedocknotfound/actions/workflows/ci.yml/badge.svg)](https://github.com/laserjonas/404gamedocknotfound/actions/workflows/ci.yml)
 

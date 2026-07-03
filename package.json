@@ -1,6 +1,6 @@
 {
   "name": "gamedock-manager",
-  "version": "0.14.3",
+  "version": "0.14.4",
   "private": true,
   "description": "GameDock Manager - self-hosted game server management panel for Debian",
   "license": "MIT",

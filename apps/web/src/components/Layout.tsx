@@ -25,7 +25,8 @@ export function Layout() {
     <div className="layout">
       <aside className="sidebar">
         <div className="brand">
-          <span className="brand-icon">▣</span> GameDock
+          <img className="brand-logo" src="/logo-icon.png" alt="" />
+          GameDock
           {version && <span className="brand-version">v{version}</span>}
         </div>
         <nav>

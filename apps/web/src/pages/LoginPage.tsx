@@ -63,7 +63,8 @@ export function LoginPage() {
       <div className="login-page">
         <form className="login-card" onSubmit={submitCode}>
           <div className="brand brand-large">
-            <span className="brand-icon">▣</span> GameDock Manager
+            <img className="brand-logo brand-logo-large" src="/logo-icon.png" alt="" />
+            GameDock Manager
           </div>
           <div className="form-row">
             <label htmlFor="totp-code">Authenticator code or recovery code</label>
@@ -104,7 +105,8 @@ export function LoginPage() {
     <div className="login-page">
       <form className="login-card" onSubmit={submitPassword}>
         <div className="brand brand-large">
-          <span className="brand-icon">▣</span> GameDock Manager
+          <img className="brand-logo brand-logo-large" src="/logo-icon.png" alt="" />
+          GameDock Manager
         </div>
         <div className="form-row">
           <label htmlFor="username">Username</label>
