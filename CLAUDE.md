@@ -69,4 +69,3 @@ pnpm lint
   themselves via the Update button. `scripts/install.sh` / manual SSH is only for
   bootstrapping a fresh host or recovering a broken self-update — treat it as a
   last resort, not the default path, and confirm with the user first.
-
