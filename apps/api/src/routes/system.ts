@@ -30,11 +30,11 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
 
   app.get('/api/system/stats', { preHandler: requireRole('viewer') }, async () => {
     const base = await ctx.systemStats.collect();
-    const instances = await ctx.repos.instances.list();
+    const totalInstances = await ctx.repos.instances.count();
     return {
       ...base,
       runningInstances: ctx.processes.runningCount(),
-      totalInstances: instances.length,
+      totalInstances,
     };
   });
 

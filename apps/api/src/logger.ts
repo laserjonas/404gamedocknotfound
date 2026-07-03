@@ -23,17 +23,29 @@ const RING_BUFFER_SIZE = 2000;
 const OMIT_FROM_EXTRA = new Set(['level', 'time', 'msg', 'component', 'pid', 'hostname', 'v']);
 
 export class LogRingBuffer {
-  private entries: LogEntry[] = [];
+  // Fixed-size circular buffer: pushing past capacity overwrites the oldest
+  // slot in place instead of Array.shift()'s O(n) re-index on every push.
+  private entries: (LogEntry | undefined)[] = new Array(RING_BUFFER_SIZE);
+  private nextIndex = 0;
+  private size = 0;
   private listeners = new Set<(entry: LogEntry) => void>();
 
   push(entry: LogEntry): void {
-    this.entries.push(entry);
-    if (this.entries.length > RING_BUFFER_SIZE) this.entries.shift();
+    this.entries[this.nextIndex] = entry;
+    this.nextIndex = (this.nextIndex + 1) % RING_BUFFER_SIZE;
+    if (this.size < RING_BUFFER_SIZE) this.size++;
     for (const listener of this.listeners) listener(entry);
   }
 
+  /** Oldest-to-newest, like Array.prototype.slice(-limit). */
   recent(limit = RING_BUFFER_SIZE): LogEntry[] {
-    return this.entries.slice(-limit);
+    const count = Math.min(Math.max(limit, 0), this.size);
+    const start = (this.nextIndex - count + RING_BUFFER_SIZE) % RING_BUFFER_SIZE;
+    const result: LogEntry[] = [];
+    for (let i = 0; i < count; i++) {
+      result.push(this.entries[(start + i) % RING_BUFFER_SIZE]!);
+    }
+    return result;
   }
 
   subscribe(listener: (entry: LogEntry) => void): () => void {

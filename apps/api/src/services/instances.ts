@@ -8,7 +8,11 @@ import type {
   UpdateInstanceRequest,
 } from '@gamedock/shared';
 import type { GameTemplate } from '@gamedock/game-templates';
-import type { InstanceRepository, InstanceRow } from '../db/repositories/instances.js';
+import type {
+  InstancePortRow,
+  InstanceRepository,
+  InstanceRow,
+} from '../db/repositories/instances.js';
 import type { JobRow } from '../db/repositories/jobs.js';
 import type { JobService } from './jobs.js';
 import type { TemplateService } from './templates.js';
@@ -74,15 +78,17 @@ export class InstanceService {
     return row.status;
   }
 
-  async toDto(row: InstanceRow, includeUsage = false): Promise<InstanceDto> {
+  private buildDto(
+    row: InstanceRow,
+    data: {
+      ports: InstancePortRow[];
+      envVars: Record<string, string>;
+      variables: Record<string, string>;
+      usage: InstanceDto['usage'];
+    },
+  ): InstanceDto {
     const template = this.templateOf(row);
     const status = this.effectiveStatus(row);
-    const [ports, envVars, variables, usage] = await Promise.all([
-      this.repo.listPorts(row.id),
-      this.repo.getEnvVars(row.id),
-      this.repo.getVariables(row.id),
-      includeUsage ? this.processes.usage(row.id) : Promise.resolve(null),
-    ]);
     return {
       id: row.id,
       name: row.name,
@@ -95,20 +101,30 @@ export class InstanceService {
       updatedAt: row.updated_at,
       startExecutable: row.start_executable,
       startArgs: row.start_args ? (JSON.parse(row.start_args) as string[]) : null,
-      ports: ports.map((p) => ({
+      ports: data.ports.map((p) => ({
         id: p.id,
         name: p.name,
         port: p.port,
         protocol: p.protocol,
       })),
-      envVars,
-      variables: this.redactSecretVariables(template, variables),
+      envVars: data.envVars,
+      variables: this.redactSecretVariables(template, data.variables),
       pid: this.processes.pidOf(row.id),
-      usage,
+      usage: data.usage,
       crashRestart: row.crash_restart === 1,
       backupIntervalHours: row.backup_interval_hours,
       backupRetentionCount: row.backup_retention_count,
     };
+  }
+
+  async toDto(row: InstanceRow, includeUsage = false): Promise<InstanceDto> {
+    const [ports, envVars, variables, usage] = await Promise.all([
+      this.repo.listPorts(row.id),
+      this.repo.getEnvVars(row.id),
+      this.repo.getVariables(row.id),
+      includeUsage ? this.processes.usage(row.id) : Promise.resolve(null),
+    ]);
+    return this.buildDto(row, { ports, envVars, variables, usage });
   }
 
   private redactSecretVariables(
@@ -126,7 +142,21 @@ export class InstanceService {
 
   async listDtos(): Promise<InstanceDto[]> {
     const rows = await this.repo.list();
-    return Promise.all(rows.map((row) => this.toDto(row)));
+    if (rows.length === 0) return [];
+    const ids = rows.map((row) => row.id);
+    const [portsByInstance, envVarsByInstance, variablesByInstance] = await Promise.all([
+      this.repo.listPortsForInstances(ids),
+      this.repo.getEnvVarsForInstances(ids),
+      this.repo.getVariablesForInstances(ids),
+    ]);
+    return rows.map((row) =>
+      this.buildDto(row, {
+        ports: portsByInstance.get(row.id) ?? [],
+        envVars: envVarsByInstance.get(row.id) ?? {},
+        variables: variablesByInstance.get(row.id) ?? {},
+        usage: null,
+      }),
+    );
   }
 
   // --- CRUD ------------------------------------------------------------------
@@ -562,7 +592,8 @@ export class InstanceService {
   }
 
   async autoStartAll(): Promise<void> {
-    for (const row of await this.repo.list()) {
+    const rows = await this.repo.list();
+    for (const row of rows) {
       if (!['running', 'starting', 'stopping', 'installing'].includes(row.status)) continue;
       const reattached = await this.tryReattach(row);
       if (!reattached) {
@@ -571,7 +602,9 @@ export class InstanceService {
         });
       }
     }
-    for (const row of await this.repo.list()) {
+    // auto_start/installed don't change above, and isActive() is checked
+    // live per-row below - reusing the same fetch avoids a second query.
+    for (const row of rows) {
       if (row.auto_start === 1 && row.installed === 1 && !this.processes.isActive(row.id)) {
         try {
           this.logger.info({ instance: row.name }, 'auto-starting instance');

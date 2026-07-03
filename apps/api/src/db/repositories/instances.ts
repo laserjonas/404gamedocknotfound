@@ -45,6 +45,12 @@ export class InstanceRepository {
     return this.db.all<InstanceRow>('SELECT * FROM server_instances ORDER BY name');
   }
 
+  /** Cheaper than list().length for callers that only need the count. */
+  async count(): Promise<number> {
+    const row = await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM server_instances');
+    return row?.n ?? 0;
+  }
+
   async findById(id: string): Promise<InstanceRow | undefined> {
     return this.db.get<InstanceRow>('SELECT * FROM server_instances WHERE id = ?', [id]);
   }
@@ -128,6 +134,23 @@ export class InstanceRepository {
     );
   }
 
+  /** Batched form of listPorts() for listing many instances at once (avoids N+1 queries). */
+  async listPortsForInstances(instanceIds: string[]): Promise<Map<string, InstancePortRow[]>> {
+    if (instanceIds.length === 0) return new Map();
+    const placeholders = instanceIds.map(() => '?').join(', ');
+    const rows = await this.db.all<InstancePortRow>(
+      `SELECT * FROM instance_ports WHERE instance_id IN (${placeholders}) ORDER BY port`,
+      instanceIds,
+    );
+    const map = new Map<string, InstancePortRow[]>();
+    for (const row of rows) {
+      const list = map.get(row.instance_id);
+      if (list) list.push(row);
+      else map.set(row.instance_id, [row]);
+    }
+    return map;
+  }
+
   async replacePorts(
     instanceId: string,
     ports: { name: string; port: number; protocol: PortProtocol }[],
@@ -153,6 +176,19 @@ export class InstanceRepository {
     return Object.fromEntries(rows.map((r) => [r.key, r.value]));
   }
 
+  /** Batched form of getEnvVars() for listing many instances at once (avoids N+1 queries). */
+  async getEnvVarsForInstances(
+    instanceIds: string[],
+  ): Promise<Map<string, Record<string, string>>> {
+    if (instanceIds.length === 0) return new Map();
+    const placeholders = instanceIds.map(() => '?').join(', ');
+    const rows = await this.db.all<KeyValueRow>(
+      `SELECT * FROM instance_env_vars WHERE instance_id IN (${placeholders}) ORDER BY key`,
+      instanceIds,
+    );
+    return groupKeyValueRowsByInstance(rows);
+  }
+
   async replaceEnvVars(instanceId: string, envVars: Record<string, string>): Promise<void> {
     await this.db.transaction(async () => {
       await this.db.run('DELETE FROM instance_env_vars WHERE instance_id = ?', [instanceId]);
@@ -173,6 +209,19 @@ export class InstanceRepository {
     return Object.fromEntries(rows.map((r) => [r.key, r.value]));
   }
 
+  /** Batched form of getVariables() for listing many instances at once (avoids N+1 queries). */
+  async getVariablesForInstances(
+    instanceIds: string[],
+  ): Promise<Map<string, Record<string, string>>> {
+    if (instanceIds.length === 0) return new Map();
+    const placeholders = instanceIds.map(() => '?').join(', ');
+    const rows = await this.db.all<KeyValueRow>(
+      `SELECT * FROM instance_variables WHERE instance_id IN (${placeholders}) ORDER BY key`,
+      instanceIds,
+    );
+    return groupKeyValueRowsByInstance(rows);
+  }
+
   async replaceVariables(instanceId: string, variables: Record<string, string>): Promise<void> {
     await this.db.transaction(async () => {
       await this.db.run('DELETE FROM instance_variables WHERE instance_id = ?', [instanceId]);
@@ -184,4 +233,14 @@ export class InstanceRepository {
       }
     });
   }
+}
+
+function groupKeyValueRowsByInstance(rows: KeyValueRow[]): Map<string, Record<string, string>> {
+  const map = new Map<string, Record<string, string>>();
+  for (const row of rows) {
+    const existing = map.get(row.instance_id);
+    if (existing) existing[row.key] = row.value;
+    else map.set(row.instance_id, { [row.key]: row.value });
+  }
+  return map;
 }
