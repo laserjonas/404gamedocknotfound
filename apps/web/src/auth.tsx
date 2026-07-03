@@ -1,14 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { MeResponse, Role, UserDto } from '@gamedock/shared';
+import type { LoginResponseDto, MeResponse, Role, UserDto } from '@gamedock/shared';
 import { ROLE_LEVELS } from '@gamedock/shared';
 import { api, setCsrfToken } from './api';
+
+export type LoginStepResult =
+  { requiresTotp: true; challengeToken: string } | { requiresTotp: false };
 
 interface AuthState {
   user: UserDto | null;
   loading: boolean;
-  login(username: string, password: string): Promise<void>;
+  login(username: string, password: string): Promise<LoginStepResult>;
+  completeTotpLogin(challengeToken: string, code: string): Promise<void>;
   logout(): Promise<void>;
   hasRole(role: Role): boolean;
+  refreshUser(): Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -44,11 +49,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
-    const result = await api.post<{ user: UserDto; csrfToken: string }>('/api/auth/login', {
-      username,
-      password,
+  const login = useCallback(
+    async (username: string, password: string): Promise<LoginStepResult> => {
+      const result = await api.post<LoginResponseDto>('/api/auth/login', { username, password });
+      if (result.status === 'totp_required') {
+        return { requiresTotp: true, challengeToken: result.challengeToken };
+      }
+      setCsrfToken(result.csrfToken);
+      setUser(result.user);
+      return { requiresTotp: false };
+    },
+    [],
+  );
+
+  const completeTotpLogin = useCallback(async (challengeToken: string, code: string) => {
+    const result = await api.post<LoginResponseDto>('/api/auth/login/totp', {
+      challengeToken,
+      code,
     });
+    if (result.status === 'totp_required') {
+      // Shouldn't happen (this endpoint always completes or throws), but stay safe.
+      throw new Error('Verification did not complete');
+    }
     setCsrfToken(result.csrfToken);
     setUser(result.user);
   }, []);
@@ -67,8 +89,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user],
   );
 
+  const refreshUser = useCallback(async () => {
+    const me = await api.get<MeResponse>('/api/auth/me');
+    setCsrfToken(me.csrfToken);
+    setUser(me.user);
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, hasRole }}>
+    <AuthContext.Provider
+      value={{ user, loading, login, completeTotpLogin, logout, hasRole, refreshUser }}
+    >
       {children}
     </AuthContext.Provider>
   );

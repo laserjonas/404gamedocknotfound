@@ -27,9 +27,11 @@ from a clean web interface.
   instance directory
 - **Backups** — `.tar.gz` archives with optional excludes, restore, delete
 - **Jobs** — long-running installs/updates/backups run as tracked jobs with live logs
-- **Users & roles** — admin / operator / viewer with role-based access control
-- **Security** — bcrypt password hashing, session cookies + CSRF tokens, audit log,
-  path traversal protection, no shell command construction, never runs as root
+- **Users & roles** — admin / operator / viewer with role-based access control,
+  optional per-user TOTP two-factor authentication
+- **Security** — bcrypt password hashing, session cookies + CSRF tokens, login
+  rate limiting, audit log with automatic retention, path traversal protection,
+  no shell command construction, never runs as root
 
 ## Stack
 

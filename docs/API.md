@@ -15,20 +15,24 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 
 ## Auth
 
-| Method | Path           | Role   | Description                                                |
-| ------ | -------------- | ------ | ---------------------------------------------------------- |
-| POST   | `/auth/login`  | –      | Body `{username, password}` → `{user, csrfToken}` + cookie |
-| POST   | `/auth/logout` | –      | Clears the session                                         |
-| GET    | `/auth/me`     | viewer | Current user + CSRF token                                  |
+| Method | Path                 | Role   | Description                                                                                                                         |
+| ------ | -------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/auth/login`        | –      | Body `{username, password}` → `{status:'ok', user, csrfToken}` + cookie, or `{status:'totp_required', challengeToken}` if 2FA is on |
+| POST   | `/auth/login/totp`   | –      | Body `{challengeToken, code}` → completes login the same way as a plain `/auth/login`                                               |
+| POST   | `/auth/logout`       | –      | Clears the session                                                                                                                  |
+| GET    | `/auth/me`           | viewer | Current user + CSRF token                                                                                                           |
+| POST   | `/auth/totp/setup`   | viewer | Generates a new (unconfirmed) secret for the current user → `{secret, otpauthUrl, qrCodeDataUrl}`                                   |
+| POST   | `/auth/totp/confirm` | viewer | Body `{code}` - verifies the first code and turns 2FA on                                                                            |
+| POST   | `/auth/totp/disable` | viewer | Body `{password}` - re-verifies the password, then turns 2FA off                                                                    |
 
 ## Users (admin)
 
-| Method | Path         | Description                                                              |
-| ------ | ------------ | ------------------------------------------------------------------------ |
-| GET    | `/users`     | List users                                                               |
-| POST   | `/users`     | Body `{username, password, role}`                                        |
-| PATCH  | `/users/:id` | Body `{password?, role?, disabled?}` (safeguards protect the last admin) |
-| DELETE | `/users/:id` | Delete user (not yourself)                                               |
+| Method | Path         | Description                                                                                                                                         |
+| ------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/users`     | List users                                                                                                                                          |
+| POST   | `/users`     | Body `{username, password, role}`                                                                                                                   |
+| PATCH  | `/users/:id` | Body `{password?, role?, disabled?, resetTotp?}` (safeguards protect the last admin; `resetTotp:true` force-disables 2FA, e.g. after a lost device) |
+| DELETE | `/users/:id` | Delete user (not yourself)                                                                                                                          |
 
 ## Templates
 

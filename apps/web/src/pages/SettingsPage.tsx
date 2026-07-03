@@ -1,18 +1,31 @@
 import { useEffect, useState } from 'react';
-import type { AuditLogDto, DependencyStatusDto, JobDto, UpdateStatusDto } from '@gamedock/shared';
+import type {
+  AuditLogDto,
+  DependencyStatusDto,
+  JobDto,
+  TotpSetupResponseDto,
+  UpdateStatusDto,
+} from '@gamedock/shared';
 import { api, ApiError } from '../api';
 import { useAuth } from '../auth';
 import { formatDate } from '../format';
 import { JobLogModal } from '../components/JobLogModal';
 
 export function SettingsPage() {
-  const { hasRole } = useAuth();
+  const { user, hasRole, refreshUser } = useAuth();
   const [deps, setDeps] = useState<DependencyStatusDto[]>([]);
   const [audit, setAudit] = useState<AuditLogDto[]>([]);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusDto | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateJobId, setUpdateJobId] = useState<string | null>(null);
+
+  const [totpSetup, setTotpSetup] = useState<TotpSetupResponseDto | null>(null);
+  const [totpCode, setTotpCode] = useState('');
+  const [totpError, setTotpError] = useState<string | null>(null);
+  const [totpBusy, setTotpBusy] = useState(false);
+  const [showDisableForm, setShowDisableForm] = useState(false);
+  const [disablePassword, setDisablePassword] = useState('');
 
   const loadUpdateStatus = () => {
     setUpdateError(null);
@@ -40,6 +53,49 @@ export function SettingsPage() {
     }
   };
 
+  const startTotpSetup = async () => {
+    setTotpError(null);
+    setTotpBusy(true);
+    try {
+      const setup = await api.post<TotpSetupResponseDto>('/api/auth/totp/setup');
+      setTotpSetup(setup);
+    } catch (err) {
+      setTotpError(err instanceof Error ? err.message : 'Failed to start setup');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const confirmTotpSetup = async () => {
+    setTotpError(null);
+    setTotpBusy(true);
+    try {
+      await api.post('/api/auth/totp/confirm', { code: totpCode });
+      setTotpSetup(null);
+      setTotpCode('');
+      await refreshUser();
+    } catch (err) {
+      setTotpError(err instanceof Error ? err.message : 'Invalid code');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const disableTotp = async () => {
+    setTotpError(null);
+    setTotpBusy(true);
+    try {
+      await api.post('/api/auth/totp/disable', { password: disablePassword });
+      setShowDisableForm(false);
+      setDisablePassword('');
+      await refreshUser();
+    } catch (err) {
+      setTotpError(err instanceof Error ? err.message : 'Failed to disable 2FA');
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
   useEffect(() => {
     api
       .get<DependencyStatusDto[]>('/api/system/dependencies')
@@ -57,6 +113,104 @@ export function SettingsPage() {
   return (
     <div>
       <h1>Settings</h1>
+
+      <div className="card form-card">
+        <h2>Two-factor authentication</h2>
+        {user?.totpEnabled ? (
+          <>
+            <p className="muted">Enabled for your account - a code is required at every sign-in.</p>
+            {!showDisableForm ? (
+              <button className="btn btn-small" onClick={() => setShowDisableForm(true)}>
+                Disable 2FA
+              </button>
+            ) : (
+              <div className="form-row-inline">
+                <input
+                  type="password"
+                  placeholder="Current password"
+                  value={disablePassword}
+                  onChange={(e) => setDisablePassword(e.target.value)}
+                />
+                <button
+                  className="btn btn-small"
+                  disabled={totpBusy || !disablePassword}
+                  onClick={() => void disableTotp()}
+                >
+                  Confirm disable
+                </button>
+                <button
+                  className="btn btn-small"
+                  onClick={() => {
+                    setShowDisableForm(false);
+                    setDisablePassword('');
+                    setTotpError(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </>
+        ) : totpSetup ? (
+          <>
+            <p className="muted">
+              Scan this QR code with an authenticator app (Google Authenticator, Authy, 1Password,
+              ...), then enter the 6-digit code it shows to confirm.
+            </p>
+            <img
+              src={totpSetup.qrCodeDataUrl}
+              alt="2FA setup QR code"
+              width={200}
+              height={200}
+              style={{ display: 'block', marginBottom: 12 }}
+            />
+            <div className="form-row">
+              <label>Can't scan? Enter this key manually</label>
+              <code>{totpSetup.secret}</code>
+            </div>
+            <div className="form-row-inline">
+              <input
+                placeholder="6-digit code"
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value)}
+                inputMode="numeric"
+                maxLength={6}
+              />
+              <button
+                className="btn btn-primary btn-small"
+                disabled={totpBusy || totpCode.length !== 6}
+                onClick={() => void confirmTotpSetup()}
+              >
+                Confirm &amp; enable
+              </button>
+              <button
+                className="btn btn-small"
+                onClick={() => {
+                  setTotpSetup(null);
+                  setTotpCode('');
+                  setTotpError(null);
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="muted">
+              Not enabled. Add an authenticator app as a second sign-in step for your account.
+            </p>
+            <button
+              className="btn btn-small"
+              disabled={totpBusy}
+              onClick={() => void startTotpSetup()}
+            >
+              Enable 2FA
+            </button>
+          </>
+        )}
+        {totpError && <div className="error-text">{totpError}</div>}
+      </div>
 
       {hasRole('admin') && (
         <div className="card">

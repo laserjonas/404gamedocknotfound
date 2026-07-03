@@ -83,6 +83,16 @@ in-memory) - repeated failures return the same generic "invalid username or
 password" error as a first attempt, so this isn't visible to an attacker
 beyond the added delay.
 
+### Two-factor authentication (TOTP)
+
+Any user can enable TOTP (Google Authenticator, Authy, 1Password, etc.) from
+Settings → Two-factor authentication: scan the QR code, confirm one code, and
+every future login needs a fresh code after the password. Verification codes
+are throttled the same way as password attempts. Secrets are stored
+server-side only; there's no recovery-codes flow yet, so a lost device means
+an **admin** has to reset that account's 2FA (Users page → Reset 2FA, or
+`PATCH /api/users/:id {"resetTotp": true}`) before the owner can sign back in.
+
 ## What you must do
 
 1. **Never expose port 8340 directly.** Bind to `127.0.0.1` (default) and put

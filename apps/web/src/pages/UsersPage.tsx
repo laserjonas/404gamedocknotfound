@@ -74,6 +74,16 @@ export function UsersPage() {
     }
   };
 
+  const resetTotp = async (user: UserDto) => {
+    setError(null);
+    try {
+      await api.patch(`/api/users/${user.id}`, { resetTotp: true });
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reset 2FA');
+    }
+  };
+
   const confirmDelete = async () => {
     if (!deleting) return;
     try {
@@ -104,6 +114,7 @@ export function UsersPage() {
               <th>Username</th>
               <th>Role</th>
               <th>Status</th>
+              <th>2FA</th>
               <th>Last login</th>
               <th></th>
             </tr>
@@ -127,11 +138,23 @@ export function UsersPage() {
                   </select>
                 </td>
                 <td>{user.disabled ? 'Disabled' : 'Active'}</td>
+                <td>
+                  {user.totpEnabled ? (
+                    <span className="badge status-running">on</span>
+                  ) : (
+                    <span className="muted">off</span>
+                  )}
+                </td>
                 <td className="muted">{formatDate(user.lastLoginAt)}</td>
                 <td className="row-actions">
                   <button className="btn btn-small" onClick={() => setResetting(user)}>
                     Reset password
                   </button>
+                  {user.totpEnabled && (
+                    <button className="btn btn-small" onClick={() => void resetTotp(user)}>
+                      Reset 2FA
+                    </button>
+                  )}
                   {user.id !== me?.id && (
                     <>
                       <button className="btn btn-small" onClick={() => void toggleDisabled(user)}>

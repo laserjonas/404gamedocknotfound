@@ -623,6 +623,16 @@ select {
   text-align: center;
   margin-top: 16px;
 }
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
 
 /* Modal */
 .modal-backdrop {

@@ -138,6 +138,14 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE server_instances ADD COLUMN backup_retention_count INTEGER;
     `,
   },
+  {
+    id: 3,
+    name: 'totp',
+    sql: `
+      ALTER TABLE users ADD COLUMN totp_secret TEXT;
+      ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 export async function runMigrations(db: DatabaseClient, logger?: Logger): Promise<void> {

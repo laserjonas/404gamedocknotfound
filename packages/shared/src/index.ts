@@ -23,6 +23,7 @@ export interface UserDto {
   updatedAt: string;
   lastLoginAt: string | null;
   disabled: boolean;
+  totpEnabled: boolean;
 }
 
 export interface MeResponse {
@@ -33,6 +34,17 @@ export interface MeResponse {
 export interface LoginRequest {
   username: string;
   password: string;
+}
+
+/** Login completes in one step, or two if the account has 2FA enabled. */
+export type LoginResponseDto =
+  | { status: 'ok'; user: UserDto; csrfToken: string }
+  | { status: 'totp_required'; challengeToken: string };
+
+export interface TotpSetupResponseDto {
+  secret: string;
+  otpauthUrl: string;
+  qrCodeDataUrl: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -12,6 +12,8 @@ export interface UserRow {
   created_at: string;
   updated_at: string;
   last_login_at: string | null;
+  totp_secret: string | null;
+  totp_enabled: number;
 }
 
 export function toUserDto(row: UserRow): UserDto {
@@ -23,6 +25,7 @@ export function toUserDto(row: UserRow): UserDto {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastLoginAt: row.last_login_at,
+    totpEnabled: row.totp_enabled === 1,
   };
 }
 
@@ -66,7 +69,14 @@ export class UserRepository {
 
   async update(
     id: string,
-    patch: Partial<{ username: string; passwordHash: string; role: Role; disabled: boolean }>,
+    patch: Partial<{
+      username: string;
+      passwordHash: string;
+      role: Role;
+      disabled: boolean;
+      totpSecret: string | null;
+      totpEnabled: boolean;
+    }>,
   ): Promise<void> {
     const sets: string[] = [];
     const params: unknown[] = [];
@@ -85,6 +95,14 @@ export class UserRepository {
     if (patch.disabled !== undefined) {
       sets.push('disabled = ?');
       params.push(patch.disabled ? 1 : 0);
+    }
+    if (patch.totpSecret !== undefined) {
+      sets.push('totp_secret = ?');
+      params.push(patch.totpSecret);
+    }
+    if (patch.totpEnabled !== undefined) {
+      sets.push('totp_enabled = ?');
+      params.push(patch.totpEnabled ? 1 : 0);
     }
     if (sets.length === 0) return;
     sets.push('updated_at = ?');
