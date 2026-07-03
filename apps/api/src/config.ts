@@ -47,6 +47,17 @@ const envSchema = z.object({
   GAMEDOCK_UPDATE_BRANCH: z.string().default('main'),
   /** 0 disables pruning and keeps the audit log forever. */
   GAMEDOCK_AUDIT_RETENTION_DAYS: z.coerce.number().int().min(0).max(3650).default(180),
+  /**
+   * Opt-in: run each game server as its own dedicated Linux user via sudo
+   * (see services/linuxUsers.ts). Defaults off because it depends on a
+   * one-time manual root setup step (sudoers + NoNewPrivileges=false) that
+   * self-update cannot apply itself - enabling it before that step is done
+   * would make every instance create/start fail outright.
+   */
+  GAMEDOCK_INSTANCE_USER_ISOLATION: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 });
 
 export interface AppConfig {
@@ -68,6 +79,7 @@ export interface AppConfig {
   updateRepoUrl: string;
   updateBranch: string;
   auditRetentionDays: number;
+  instanceUserIsolation: boolean;
 }
 
 const INSECURE_SECRETS = new Set(['dev-only-insecure-secret', 'change-me-to-a-long-random-string']);
@@ -123,6 +135,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     updateRepoUrl: e.GAMEDOCK_UPDATE_REPO_URL,
     updateBranch: e.GAMEDOCK_UPDATE_BRANCH,
     auditRetentionDays: e.GAMEDOCK_AUDIT_RETENTION_DAYS,
+    instanceUserIsolation: e.GAMEDOCK_INSTANCE_USER_ISOLATION,
   };
 }
 

@@ -35,24 +35,25 @@ running.
 All configuration is via environment variables, loaded from `/opt/gamedock/.env`
 by systemd (`EnvironmentFile`).
 
-| Variable                        | Default                       | Description                                                                                                                                      |
-| ------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GAMEDOCK_HOST`                 | `127.0.0.1`                   | Bind address. Keep loopback behind a proxy.                                                                                                      |
-| `GAMEDOCK_PORT`                 | `8340`                        | HTTP port.                                                                                                                                       |
-| `GAMEDOCK_DATA_DIR`             | `./data`                      | Data directory (DB, user templates, logs).                                                                                                       |
-| `GAMEDOCK_INSTANCE_DIR`         | `<data>/instances`            | Game server files.                                                                                                                               |
-| `GAMEDOCK_BACKUP_DIR`           | `<data>/backups`              | Backup archives.                                                                                                                                 |
-| `GAMEDOCK_DATABASE_URL`         | `sqlite:gamedock.sqlite`      | Only `sqlite:` URLs supported. Relative paths resolve inside the data dir.                                                                       |
-| `GAMEDOCK_SESSION_SECRET`       | –                             | Required in production, ≥ 32 chars.                                                                                                              |
-| `GAMEDOCK_STEAMCMD_PATH`        | `steamcmd`                    | Path to steamcmd (`/usr/games/steamcmd` on Debian).                                                                                              |
-| `GAMEDOCK_NODE_ENV`             | `development`                 | `production` enables strict checks.                                                                                                              |
-| `GAMEDOCK_MAX_UPLOAD_MB`        | `512`                         | File manager upload limit.                                                                                                                       |
-| `GAMEDOCK_SECURE_COOKIES`       | `false`                       | Set `true` behind TLS (forced on in production).                                                                                                 |
-| `GAMEDOCK_APP_DIR`              | process cwd                   | Directory the "Update" button replaces in place. Set to `/opt/gamedock`.                                                                         |
-| `GAMEDOCK_UPDATE_REPO_URL`      | _(empty)_                     | Git repo the "Update" button pulls from. Empty disables self-update.                                                                             |
-| `GAMEDOCK_UPDATE_BRANCH`        | `main`                        | Branch to track.                                                                                                                                 |
-| `GAMEDOCK_LOG_LEVEL`            | `info` (prod) / `debug` (dev) | Initial log level. Overridden by whatever was last set on the Logs page (persisted in the DB), which takes effect immediately without a restart. |
-| `GAMEDOCK_AUDIT_RETENTION_DAYS` | `180`                         | Audit log entries older than this are pruned once a day. `0` keeps everything forever.                                                           |
+| Variable                           | Default                       | Description                                                                                                                                      |
+| ---------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GAMEDOCK_HOST`                    | `127.0.0.1`                   | Bind address. Keep loopback behind a proxy.                                                                                                      |
+| `GAMEDOCK_PORT`                    | `8340`                        | HTTP port.                                                                                                                                       |
+| `GAMEDOCK_DATA_DIR`                | `./data`                      | Data directory (DB, user templates, logs).                                                                                                       |
+| `GAMEDOCK_INSTANCE_DIR`            | `<data>/instances`            | Game server files.                                                                                                                               |
+| `GAMEDOCK_BACKUP_DIR`              | `<data>/backups`              | Backup archives.                                                                                                                                 |
+| `GAMEDOCK_DATABASE_URL`            | `sqlite:gamedock.sqlite`      | Only `sqlite:` URLs supported. Relative paths resolve inside the data dir.                                                                       |
+| `GAMEDOCK_SESSION_SECRET`          | –                             | Required in production, ≥ 32 chars.                                                                                                              |
+| `GAMEDOCK_STEAMCMD_PATH`           | `steamcmd`                    | Path to steamcmd (`/usr/games/steamcmd` on Debian).                                                                                              |
+| `GAMEDOCK_NODE_ENV`                | `development`                 | `production` enables strict checks.                                                                                                              |
+| `GAMEDOCK_MAX_UPLOAD_MB`           | `512`                         | File manager upload limit.                                                                                                                       |
+| `GAMEDOCK_SECURE_COOKIES`          | `false`                       | Set `true` behind TLS (forced on in production).                                                                                                 |
+| `GAMEDOCK_APP_DIR`                 | process cwd                   | Directory the "Update" button replaces in place. Set to `/opt/gamedock`.                                                                         |
+| `GAMEDOCK_UPDATE_REPO_URL`         | _(empty)_                     | Git repo the "Update" button pulls from. Empty disables self-update.                                                                             |
+| `GAMEDOCK_UPDATE_BRANCH`           | `main`                        | Branch to track.                                                                                                                                 |
+| `GAMEDOCK_LOG_LEVEL`               | `info` (prod) / `debug` (dev) | Initial log level. Overridden by whatever was last set on the Logs page (persisted in the DB), which takes effect immediately without a restart. |
+| `GAMEDOCK_AUDIT_RETENTION_DAYS`    | `180`                         | Audit log entries older than this are pruned once a day. `0` keeps everything forever.                                                           |
+| `GAMEDOCK_INSTANCE_USER_ISOLATION` | `false`                       | Run each game server as its own dedicated Linux user (see "Per-instance user isolation" below). Requires one-time manual setup first.            |
 
 ## Updating GameDock
 
@@ -119,6 +120,38 @@ live (with a level filter and a runtime-adjustable log level, no restart
 needed) - useful when you don't have SSH access handy, but `journalctl` is
 still the source of truth for anything that happened before the in-memory
 buffer's ~2000-line window.
+
+## Per-instance user isolation (bare metal only, opt-in)
+
+Each game server can run as its own dedicated, unprivileged Linux user
+instead of sharing `gamedock` with every other instance - see
+`docs/SECURITY.md` "Process isolation" for the full design and the trade-off
+it accepts (`NoNewPrivileges=false`, a narrowly-scoped `sudo` rule). Not
+available in the Docker deployment.
+
+First update GameDock itself to a version that includes this feature (the
+Update button, as usual). Enabling it then needs a one-time manual root step,
+since self-update never touches root-owned files (`/etc/sudoers.d/`, the
+systemd unit):
+
+```bash
+cd /opt/gamedock
+sudo bash scripts/deploy.sh   # installs the sudoers rule + helper script,
+                               # and picks up NoNewPrivileges=false
+```
+
+Then enable it and provision existing instances:
+
+```bash
+echo 'GAMEDOCK_INSTANCE_USER_ISOLATION=true' | sudo tee -a /opt/gamedock/.env
+sudo systemctl restart gamedock
+sudo -u gamedock bash -c 'cd /opt/gamedock && pnpm gamedock instances:migrate-user-isolation --dry-run'
+sudo -u gamedock bash -c 'cd /opt/gamedock && pnpm gamedock instances:migrate-user-isolation'
+```
+
+The migration command is idempotent and safe to re-run - it only touches
+instances that don't have a dedicated user yet. New instances created after
+`GAMEDOCK_INSTANCE_USER_ISOLATION=true` is set get one automatically.
 
 ## Backups of GameDock itself
 

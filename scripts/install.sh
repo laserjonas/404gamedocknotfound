@@ -51,6 +51,9 @@ if ! id -u "${GAMEDOCK_USER}" >/dev/null 2>&1; then
     --shell /usr/sbin/nologin "${GAMEDOCK_USER}"
 fi
 
+echo "==> Creating 'gamedock-instances' group (for optional per-instance user isolation)"
+groupadd --system gamedock-instances 2>/dev/null || true
+
 echo "==> Creating directory layout"
 mkdir -p "${APP_DIR}"
 mkdir -p "${DATA_DIR}/instances" "${DATA_DIR}/backups" "${DATA_DIR}/templates" "${DATA_DIR}/runtimes"

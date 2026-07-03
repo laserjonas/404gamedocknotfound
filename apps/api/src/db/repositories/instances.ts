@@ -17,6 +17,8 @@ export interface InstanceRow {
   crash_restart: number;
   backup_interval_hours: number | null;
   backup_retention_count: number | null;
+  linux_username: string | null;
+  linux_uid: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -80,6 +82,8 @@ export class InstanceRepository {
       crashRestart: boolean;
       backupIntervalHours: number | null;
       backupRetentionCount: number | null;
+      linuxUsername: string | null;
+      linuxUid: number | null;
     }>,
   ): Promise<void> {
     const sets: string[] = [];
@@ -96,6 +100,8 @@ export class InstanceRepository {
       ['crashRestart', 'crash_restart', (v) => (v ? 1 : 0)],
       ['backupIntervalHours', 'backup_interval_hours', (v) => v],
       ['backupRetentionCount', 'backup_retention_count', (v) => v],
+      ['linuxUsername', 'linux_username', (v) => v],
+      ['linuxUid', 'linux_uid', (v) => v],
     ];
     for (const [key, column, transform] of map) {
       if (key in patch) {

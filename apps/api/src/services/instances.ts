@@ -15,6 +15,7 @@ import type { TemplateService } from './templates.js';
 import type { ProcessManager } from './processManager.js';
 import type { BackupService } from './backups.js';
 import type { BackupRepository } from '../db/repositories/backups.js';
+import type { LinuxUserService } from './linuxUsers.js';
 import type { AppConfig } from '../config.js';
 import type { Logger } from '../logger.js';
 import { TemplateService as TemplateServiceStatic } from './templates.js';
@@ -41,6 +42,7 @@ export class InstanceService {
     private jobs: JobService,
     private processes: ProcessManager,
     private backups: BackupService,
+    private linuxUsers: LinuxUserService,
     private config: AppConfig,
     private logger: Logger,
   ) {}
@@ -157,6 +159,22 @@ export class InstanceService {
     await this.repo.replacePorts(row.id, ports);
 
     await mkdir(this.instanceDir(row.id), { recursive: true });
+
+    if (this.linuxUsers.enabled) {
+      try {
+        const { username, uid } = await this.linuxUsers.provision(row.id);
+        await this.repo.update(row.id, { linuxUsername: username, linuxUid: uid });
+      } catch (err) {
+        // No silent fallback to the shared-user model - that would be a
+        // security-relevant behavior change nobody would notice.
+        await rm(this.instanceDir(row.id), { recursive: true, force: true }).catch(() => {});
+        await this.repo.delete(row.id);
+        throw new Error(
+          `Failed to provision an isolated Linux user for this instance: ${(err as Error).message}`,
+        );
+      }
+    }
+
     return this.getRow(row.id);
   }
 
@@ -247,6 +265,10 @@ export class InstanceService {
       if (existsSync(backupDir)) {
         handle.log('Removing backups...');
         await rm(backupDir, { recursive: true, force: true });
+      }
+      if (row.linux_username) {
+        handle.log('Removing dedicated Linux user...');
+        await this.linuxUsers.deprovision(id);
       }
       await this.repo.delete(id);
       handle.log('Instance deleted');
@@ -384,6 +406,7 @@ export class InstanceService {
       instanceDir: dir,
       command,
       template,
+      linuxUsername: row.linux_username,
     });
   }
 
@@ -510,12 +533,21 @@ export class InstanceService {
         overrideArgs: row.start_args ? (JSON.parse(row.start_args) as string[]) : null,
       });
       const cwd = resolveSafePath(dir, command.workingDir || '.');
-      if (!this.processes.pidMatches(row.last_pid, command.executable, cwd)) return false;
+      const matches = row.linux_username
+        ? this.processes.pidMatches(
+            row.last_pid,
+            command.executable,
+            cwd,
+            row.linux_uid ?? undefined,
+          )
+        : this.processes.pidMatches(row.last_pid, command.executable, cwd);
+      if (!matches) return false;
       this.processes.adopt({
         instanceId: row.id,
         instanceName: row.name,
         pid: row.last_pid,
         template,
+        linuxUsername: row.linux_username,
       });
       await this.repo.update(row.id, { status: 'running' });
       this.logger.info({ instance: row.name, pid: row.last_pid }, 'reattached to running instance');

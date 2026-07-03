@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+#
+# Root-owned helper invoked by the unprivileged gamedock user via a narrowly
+# scoped sudoers rule (see scripts/install.sh) to provision/remove a
+# dedicated, unprivileged Linux user per game server instance. This is the
+# only root-touching path in the per-instance user isolation feature - see
+# docs/SECURITY.md "Process isolation".
+#
+# usage: gamedock-instance-user {create|delete|chown} <instance-uuid>
+set -euo pipefail
+
+if [[ $EUID -ne 0 ]]; then
+  echo "must run as root (via sudo)" >&2
+  exit 1
+fi
+
+DATA_DIR="${GAMEDOCK_DATA_DIR:-/var/lib/gamedock}"
+LOG_DIR="${GAMEDOCK_LOG_DIR:-/var/log/gamedock}"
+GAMEDOCK_USER="${GAMEDOCK_USER:-gamedock}"
+
+# Matches exactly what Node's crypto.randomUUID() produces.
+INSTANCE_ID_RE='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+USERNAME_RE='^gd-[0-9]{5,}$'
+
+usage() {
+  echo "usage: $0 {create|delete|chown} <instance-uuid>" >&2
+  exit 1
+}
+
+require_uuid() {
+  if [[ ! "$1" =~ $INSTANCE_ID_RE ]]; then
+    echo "invalid instance id: $1" >&2
+    exit 1
+  fi
+}
+
+# The instance id -> username mapping lives in a marker file here (in
+# addition to GameDock's own database) so this script never has to re-derive
+# or trust a username passed in from outside - only ever looks one up by the
+# already-validated instance id, or mints a fresh one.
+username_for_uuid() {
+  local marker="${DATA_DIR}/instance-users/${1}"
+  if [[ -f "$marker" ]]; then
+    cat "$marker"
+  fi
+}
+
+next_free_username() {
+  local n=1
+  local candidate
+  while true; do
+    candidate=$(printf 'gd-%05d' "$n")
+    if ! getent passwd "$candidate" >/dev/null 2>&1; then
+      echo "$candidate"
+      return
+    fi
+    n=$((n + 1))
+  done
+}
+
+cmd_create() {
+  local uuid="$1"
+  require_uuid "$uuid"
+  mkdir -p "${DATA_DIR}/instance-users"
+
+  local username
+  username="$(username_for_uuid "$uuid")"
+  if [[ -z "$username" ]]; then
+    username="$(next_free_username)"
+    if [[ ! "$username" =~ $USERNAME_RE ]]; then
+      echo "internal error: generated invalid username $username" >&2
+      exit 1
+    fi
+    groupadd --system "$username"
+    useradd --system --no-create-home --shell /usr/sbin/nologin \
+      --gid "$username" --groups gamedock-instances "$username"
+    echo "$username" >"${DATA_DIR}/instance-users/${uuid}"
+  fi
+
+  local instance_dir="${DATA_DIR}/instances/${uuid}"
+  local backup_dir="${DATA_DIR}/backups/${uuid}"
+  local log_dir="${LOG_DIR}/instances/${uuid}"
+  mkdir -p "$instance_dir" "$backup_dir" "$log_dir"
+  chown "${username}:${GAMEDOCK_USER}" "$instance_dir" "$backup_dir" "$log_dir"
+  chmod 2770 "$instance_dir" "$backup_dir" "$log_dir"
+  # Pretty combined log file may not exist yet at provisioning time - best effort.
+  chown "${username}:${GAMEDOCK_USER}" "${LOG_DIR}/instances/${uuid}.log" 2>/dev/null || true
+  chmod 0660 "${LOG_DIR}/instances/${uuid}.log" 2>/dev/null || true
+
+  echo "${username} $(id -u "$username")"
+}
+
+cmd_delete() {
+  local uuid="$1"
+  require_uuid "$uuid"
+  local username
+  username="$(username_for_uuid "$uuid")"
+  if [[ -z "$username" ]]; then
+    exit 0 # never provisioned, or already deleted - nothing to do
+  fi
+  pkill -u "$username" 2>/dev/null || true
+  userdel "$username" 2>/dev/null || true
+  groupdel "$username" 2>/dev/null || true
+  rm -f "${DATA_DIR}/instance-users/${uuid}"
+}
+
+# Idempotent repair: re-applies ownership/permissions for an already
+# provisioned instance. Used by the `instances:migrate-user-isolation` CLI
+# command and safe to run recursively against existing (non-empty) directories.
+cmd_chown() {
+  local uuid="$1"
+  require_uuid "$uuid"
+  local username
+  username="$(username_for_uuid "$uuid")"
+  if [[ -z "$username" ]]; then
+    echo "instance $uuid has no provisioned Linux user" >&2
+    exit 1
+  fi
+  local instance_dir="${DATA_DIR}/instances/${uuid}"
+  local backup_dir="${DATA_DIR}/backups/${uuid}"
+  local log_dir="${LOG_DIR}/instances/${uuid}"
+  chown -R "${username}:${GAMEDOCK_USER}" "$instance_dir" "$backup_dir" "$log_dir" 2>/dev/null || true
+  chmod 2770 "$instance_dir" "$backup_dir" "$log_dir" 2>/dev/null || true
+  echo "${username} $(id -u "$username")"
+}
+
+[[ $# -eq 2 ]] || usage
+case "$1" in
+  create) cmd_create "$2" ;;
+  delete) cmd_delete "$2" ;;
+  chown) cmd_chown "$2" ;;
+  *) usage ;;
+esac

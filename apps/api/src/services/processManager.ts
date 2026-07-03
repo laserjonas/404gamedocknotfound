@@ -7,6 +7,8 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  readdirSync,
+  readFileSync,
   readSync,
   readlinkSync,
   renameSync,
@@ -44,6 +46,8 @@ interface ManagedProcess {
   instanceName: string;
   /** -1 until the OS confirms a pid for a just-issued spawn. */
   pid: number;
+  /** Set when this instance runs as its own dedicated Linux user (see linuxUsers.ts). */
+  linuxUsername: string | null;
   status: Extract<InstanceStatus, 'starting' | 'running' | 'stopping'>;
   startedAt: number;
   stopRequested: boolean;
@@ -68,6 +72,8 @@ export interface StartProcessInput {
   instanceDir: string;
   command: StartCommand;
   template: GameTemplate;
+  /** When set, the process runs as this dedicated Linux user via sudo instead of as gamedock. */
+  linuxUsername?: string | null;
 }
 
 export interface AdoptProcessInput {
@@ -75,16 +81,38 @@ export interface AdoptProcessInput {
   instanceName: string;
   pid: number;
   template: GameTemplate;
+  linuxUsername?: string | null;
 }
 
+/**
+ * Existence of /proc/<pid> works uniformly whether the pid belongs to
+ * gamedock itself or a different dedicated per-instance user - unlike
+ * process.kill(pid, 0), which fails with EPERM for a different uid even
+ * though the process is alive (see docs/SECURITY.md "Process isolation").
+ */
 function isPidAlive(pid: number): boolean {
+  return existsSync(`/proc/${pid}`);
+}
+
+/** Scans /proc for a process whose parent is parentPid. Readable across uids without sudo. */
+function findChildPid(parentPid: number): number | null {
+  let entries: string[];
   try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    // ESRCH: no such process. EPERM: it exists but we can't signal it (still alive).
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
+    entries = readdirSync('/proc');
+  } catch {
+    return null;
   }
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue;
+    try {
+      const status = readFileSync(`/proc/${entry}/status`, 'utf8');
+      const match = /^PPid:\s+(\d+)/m.exec(status);
+      if (match && Number(match[1]) === parentPid) return Number(entry);
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 /**
@@ -156,14 +184,31 @@ export class ProcessManager {
   /**
    * Best-effort check that a persisted pid is still the process GameDock
    * started for this instance (guards against pid reuse across a restart).
-   * cwd is the primary signal - every instance gets its own unique working
-   * directory, whereas /proc/<pid>/exe can resolve to a differently-named
-   * real binary than the one that was launched (e.g. "python3" -> a
-   * version-suffixed interpreter, or "java" via a wrapper), so an exe-name
-   * mismatch alone should not disqualify an otherwise-matching process.
+   *
+   * For a dedicated-user (isolated) instance, expectedUid is the strong
+   * signal: /proc/<pid>/cwd and /proc/<pid>/exe are NOT readable across
+   * uids without sudo (verified live), but /proc/<pid>/status - which
+   * includes the owning Uid - is readable by anyone, so this needs no
+   * privilege escalation at all.
+   *
+   * Otherwise (shared gamedock user), cwd is the primary signal - every
+   * instance gets its own unique working directory, whereas
+   * /proc/<pid>/exe can resolve to a differently-named real binary than
+   * the one that was launched (e.g. "python3" -> a version-suffixed
+   * interpreter, or "java" via a wrapper), so an exe-name mismatch alone
+   * should not disqualify an otherwise-matching process.
    */
-  pidMatches(pid: number, executable: string, cwd: string): boolean {
+  pidMatches(pid: number, executable: string, cwd: string, expectedUid?: number): boolean {
     if (pid <= 0) return false;
+    if (expectedUid !== undefined) {
+      try {
+        const status = readFileSync(`/proc/${pid}/status`, 'utf8');
+        const match = /^Uid:\s+(\d+)/m.exec(status);
+        return match !== null && Number(match[1]) === expectedUid;
+      } catch {
+        return false;
+      }
+    }
     try {
       if (readlinkSync(`/proc/${pid}/cwd`) === cwd) return true;
     } catch {
@@ -204,15 +249,28 @@ export class ProcessManager {
     const stdinFd = openSync(fifoPath, 'r+');
     const stdoutFd = openSync(stdoutRawPath, 'w');
     const stderrFd = openSync(stderrRawPath, 'w');
+    const linuxUsername = input.linuxUsername ?? null;
     let proc;
     try {
-      proc = spawn(input.command.executable, input.command.args, {
-        cwd,
-        env: { ...this.baseEnv(), ...input.command.env },
-        shell: false,
-        stdio: [stdinFd, stdoutFd, stderrFd],
-        detached: true,
-      });
+      proc = linuxUsername
+        ? spawn(
+            'sudo',
+            ['-n', '-u', linuxUsername, '--', input.command.executable, ...input.command.args],
+            {
+              cwd,
+              env: { ...this.baseEnv(), ...input.command.env },
+              shell: false,
+              stdio: [stdinFd, stdoutFd, stderrFd],
+              detached: true,
+            },
+          )
+        : spawn(input.command.executable, input.command.args, {
+            cwd,
+            env: { ...this.baseEnv(), ...input.command.env },
+            shell: false,
+            stdio: [stdinFd, stdoutFd, stderrFd],
+            detached: true,
+          });
     } finally {
       closeSync(stdinFd);
       closeSync(stdoutFd);
@@ -223,7 +281,11 @@ export class ProcessManager {
     const managed: ManagedProcess = {
       instanceId: input.instanceId,
       instanceName: input.instanceName,
-      pid: proc.pid ?? -1,
+      // For a sudo-wrapped launch, proc.pid is sudo's own monitor pid, not
+      // the game server's (Debian's sudo forks rather than exec-replacing -
+      // verified live) - resolved to the real pid in the 'spawn' handler below.
+      pid: linuxUsername ? -1 : (proc.pid ?? -1),
+      linuxUsername,
       status: 'starting',
       startedAt: Date.now(),
       stopRequested: false,
@@ -250,6 +312,30 @@ export class ProcessManager {
     );
 
     proc.on('spawn', () => {
+      if (linuxUsername) {
+        void this.resolveSudoChildPid(proc.pid!).then((realPid) => {
+          if (!this.processes.has(input.instanceId)) return; // already finalized in the meantime
+          if (realPid === null) {
+            this.appendSystemLine(
+              managed,
+              'Failed to find the game server process after launching it via sudo',
+            );
+            this.finalize(managed, 'crashed');
+            return;
+          }
+          managed.pid = realPid;
+          this.setStatus(managed, 'running');
+          this.runSink(
+            'record instance.started event',
+            this.sink.recordEvent(
+              'instance.started',
+              input.instanceId,
+              `pid ${realPid} (user ${linuxUsername})`,
+            ),
+          );
+        });
+        return;
+      }
       managed.pid = proc.pid ?? managed.pid;
       this.setStatus(managed, 'running');
       this.runSink(
@@ -269,6 +355,27 @@ export class ProcessManager {
     });
   }
 
+  /**
+   * Resolves the real game-server pid after a sudo-wrapped spawn (Debian's
+   * sudo forks a monitor rather than exec-replacing itself - verified live).
+   * The child typically appears within ~65ms; polls briefly before giving up.
+   */
+  private resolveSudoChildPid(sudoPid: number, attemptsLeft = 40): Promise<number | null> {
+    return new Promise((resolve) => {
+      const attempt = (remaining: number) => {
+        const childPid = findChildPid(sudoPid);
+        if (childPid !== null) {
+          resolve(childPid);
+        } else if (remaining <= 0) {
+          resolve(null);
+        } else {
+          setTimeout(() => attempt(remaining - 1), 50);
+        }
+      };
+      attempt(attemptsLeft);
+    });
+  }
+
   /** Re-registers bookkeeping for a process that was already running before this restart. */
   adopt(input: AdoptProcessInput): void {
     if (this.processes.has(input.instanceId)) return;
@@ -283,6 +390,7 @@ export class ProcessManager {
       instanceId: input.instanceId,
       instanceName: input.instanceName,
       pid: input.pid,
+      linuxUsername: input.linuxUsername ?? null,
       status: 'running',
       startedAt: Date.now(),
       stopRequested: false,
@@ -488,13 +596,47 @@ export class ProcessManager {
     this.appendLine(managed, { ts: Date.now(), stream: 'system', line: `> ${command}` });
   }
 
-  private killPid(pid: number, signal: NodeJS.Signals): void {
+  /**
+   * Signals a managed process. gamedock cannot signal a process owned by a
+   * different uid directly (kill(pid, sig) fails with EPERM even though the
+   * process is alive - verified live), so a dedicated-user instance routes
+   * the signal through sudo -u <that user> instead.
+   */
+  private async killPid(
+    pid: number,
+    signal: NodeJS.Signals,
+    linuxUsername: string | null,
+  ): Promise<void> {
     if (pid <= 0) return;
-    try {
-      process.kill(pid, signal);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ESRCH') throw err;
+    if (!linuxUsername) {
+      try {
+        process.kill(pid, signal);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ESRCH') throw err;
+      }
+      return;
     }
+    await new Promise<void>((resolve) => {
+      const signalName = signal.replace(/^SIG/, '');
+      const child = spawn(
+        'sudo',
+        ['-n', '-u', linuxUsername, '--', 'kill', '-s', signalName, String(pid)],
+        { stdio: 'ignore' },
+      );
+      child.on('error', (err) => {
+        this.logger.warn(
+          { pid, linuxUsername, signal, err: err.message },
+          'failed to send signal via sudo',
+        );
+        resolve();
+      });
+      child.on('close', (code) => {
+        if (code !== 0) {
+          this.logger.warn({ pid, linuxUsername, signal, code }, 'sudo kill exited non-zero');
+        }
+        resolve();
+      });
+    });
   }
 
   /** Graceful stop: console command or signal first, SIGKILL after timeout. */
@@ -508,7 +650,7 @@ export class ProcessManager {
     if (options?.force) {
       this.appendSystemLine(managed, 'Force killing process (SIGKILL)');
       this.setStatus(managed, 'stopping');
-      this.killPid(managed.pid, 'SIGKILL');
+      await this.killPid(managed.pid, 'SIGKILL', managed.linuxUsername);
     } else {
       this.setStatus(managed, 'stopping');
       const stopCfg = managed.template.stop;
@@ -522,12 +664,12 @@ export class ProcessManager {
       } else {
         const signal = stopCfg.method === 'sigint' ? 'SIGINT' : 'SIGTERM';
         this.appendSystemLine(managed, `Sending ${signal}`);
-        this.killPid(managed.pid, signal);
+        await this.killPid(managed.pid, signal, managed.linuxUsername);
       }
       managed.killTimer = setTimeout(() => {
         if (this.processes.has(instanceId)) {
           this.appendSystemLine(managed, 'Grace period expired, sending SIGKILL');
-          this.killPid(managed.pid, 'SIGKILL');
+          void this.killPid(managed.pid, 'SIGKILL', managed.linuxUsername);
         }
       }, stopCfg.timeoutSeconds * 1000);
       managed.killTimer.unref();

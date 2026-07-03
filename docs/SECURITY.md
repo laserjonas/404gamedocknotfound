@@ -56,14 +56,46 @@ The last active admin cannot be demoted, disabled or deleted.
 - Game processes receive a **minimal environment** (PATH, HOME, locale) plus the
   template/instance variables — GameDock secrets such as the session secret are
   never passed to game servers.
-- The systemd unit applies hardening (`NoNewPrivileges`, `ProtectSystem=full`,
-  `PrivateTmp`, restricted write paths).
+- The systemd unit applies hardening (`ProtectSystem=full`, `PrivateTmp`,
+  restricted write paths, and more - see below for the one exception).
 - Game servers run detached from the API process (own process group, stdout/
   stderr to files, console input via a per-instance named pipe under
   `/var/lib/gamedock`) so they keep running across an API restart or
-  self-update; this needs no elevated privileges beyond what the `gamedock`
-  user already has (`KillMode=process` in the systemd unit, not a privileged
-  helper process).
+  self-update.
+- **Per-instance user isolation** (opt-in, `GAMEDOCK_INSTANCE_USER_ISOLATION=true`):
+  each game server runs as its own dedicated, unprivileged Linux user instead
+  of sharing `gamedock` with every other instance, so a compromised server
+  (bad mod/plugin) cannot read or write another instance's files, backups, or
+  logs. Instance directories are owned `<dedicated-user>:gamedock` mode
+  `2770` (setgid) - the dedicated user gets full access to only its own
+  directory, `gamedock` keeps group access for installs/backups/the file
+  manager, and no other instance's user has any access at all.
+  - This requires `gamedock` to run processes as those dedicated users via
+    `sudo`, scoped by a `Runas_Alias` in `/etc/sudoers.d/gamedock-instances`
+    to a fixed, non-root group (`gamedock-instances`) - `gamedock` can never
+    become root or any other real account through this rule. One additional
+    root-owned, fixed-path script (`scripts/gamedock-instance-user`) is the
+    only thing that can create/remove those dedicated users, also invoked
+    through a narrowly-scoped sudoers rule.
+  - **Trade-off, stated plainly**: this requires `NoNewPrivileges=false` in
+    the systemd unit (sudo's whole mechanism is gaining privileges at exec
+    time, which `NoNewPrivileges=true` blocks entirely). That narrows one
+    hardening axis - `sudo`/PAM itself becomes new attack surface reachable
+    from the `gamedock` process, and any future bug controlling the arguments
+    to that `sudo -u` invocation is capped by the `Runas_Alias` group
+    restriction, but a `sudo`/PAM vulnerability would be a new escalation
+    path that didn't exist before. This was a deliberate choice to close a
+    more concrete, higher-likelihood gap (cross-instance file access)
+    at the cost of a narrower, tightly-scoped one.
+  - We explicitly rejected the alternative of granting the Node process
+    itself `CAP_SETUID`/`CAP_SETGID` (e.g. via `setcap` on the node binary):
+    that would let any code path in the process - a bug, a compromised
+    dependency - escalate to _any_ uid, including root, which is a strictly
+    worse attack surface than a sudoers rule scoped to a fixed non-root group.
+  - Not available in the Docker deployment (see `docs/DEPLOYMENT.md`); all
+    instances in a container share the container's `gamedock` user.
+  - Off by default. Existing installs need a one-time manual root step to
+    enable it (see `docs/DEPLOYMENT.md`).
 
 ### Secrets
 
@@ -117,9 +149,9 @@ an **admin** has to reset that account's 2FA (Users page → Reset 2FA, or
 
 ## Known limitations
 
-- Game servers all run as the same `gamedock` user; a compromised game server can
-  read other instances' files. Per-instance system users / systemd units are a
-  planned improvement.
+- Per-instance user isolation (see above) is opt-in and bare-metal/systemd only;
+  with it disabled (the default) or in Docker, game servers all run as the same
+  `gamedock` user and a compromised game server can read other instances' files.
 - Authenticated Steam logins (for games without anonymous server downloads) are not
   supported; this avoids storing Steam credentials until an encrypted secret store
   is implemented.

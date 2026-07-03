@@ -29,7 +29,13 @@ TimeoutStopSec=90
 KillMode=process
 
 # --- Hardening -------------------------------------------------------------
-NoNewPrivileges=true
+# NoNewPrivileges must be false: gamedock needs sudo (which relies on gaining
+# privileges at exec time) to run each game server as its own dedicated,
+# isolated Linux user when GAMEDOCK_INSTANCE_USER_ISOLATION is enabled (see
+# docs/SECURITY.md "Process isolation"). This is the one privilege-escalation
+# path this service is allowed, and it's scoped to a fixed non-root group via
+# /etc/sudoers.d/gamedock-instances - do not broaden that sudoers rule.
+NoNewPrivileges=false
 ProtectSystem=full
 ProtectHome=read-only
 ReadWritePaths=/var/lib/gamedock /var/log/gamedock /opt/gamedock

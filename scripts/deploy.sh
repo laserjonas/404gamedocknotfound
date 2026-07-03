@@ -69,6 +69,28 @@ echo "==> Installing systemd unit"
 cp "${APP_DIR}/scripts/systemd/gamedock.service" /etc/systemd/system/gamedock.service
 systemctl daemon-reload
 systemctl enable gamedock
+
+echo "==> Installing per-instance user isolation helper (optional, opt-in feature)"
+groupadd --system gamedock-instances 2>/dev/null || true
+install -m 0750 -o root -g root "${APP_DIR}/scripts/gamedock-instance-user" \
+  /opt/gamedock/scripts/gamedock-instance-user
+SUDOERS_TMP="$(mktemp)"
+cat >"${SUDOERS_TMP}" <<SUDOEOF
+# Managed by GameDock (scripts/deploy.sh) - do not edit by hand.
+# Restricts ${GAMEDOCK_USER} to running processes only as members of the
+# gamedock-instances group (never root, never any other real account), plus
+# one fixed root-owned provisioning script. See docs/SECURITY.md.
+Runas_Alias GAMEDOCK_INSTANCE_USERS = %gamedock-instances
+${GAMEDOCK_USER} ALL=(GAMEDOCK_INSTANCE_USERS) NOPASSWD: ALL
+${GAMEDOCK_USER} ALL=(root) NOPASSWD: ${APP_DIR}/scripts/gamedock-instance-user
+SUDOEOF
+if visudo -cf "${SUDOERS_TMP}" >/dev/null 2>&1; then
+  install -m 0440 -o root -g root "${SUDOERS_TMP}" /etc/sudoers.d/gamedock-instances
+else
+  echo "WARNING: generated sudoers file failed validation, not installed. Per-instance user isolation (GAMEDOCK_INSTANCE_USER_ISOLATION=true) will not work until this is fixed." >&2
+fi
+rm -f "${SUDOERS_TMP}"
+
 systemctl restart gamedock
 
 sleep 2

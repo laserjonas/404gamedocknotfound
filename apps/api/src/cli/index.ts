@@ -7,6 +7,7 @@
  *   pnpm gamedock doctor
  *   pnpm gamedock instances:list
  *   pnpm gamedock repair-permissions
+ *   pnpm gamedock instances:migrate-user-isolation [--dry-run]
  */
 import { createInterface, type Interface } from 'node:readline';
 import { Writable } from 'node:stream';
@@ -19,6 +20,8 @@ import { UserRepository } from '../db/repositories/users.js';
 import { InstanceRepository } from '../db/repositories/instances.js';
 import { hashPassword, validatePasswordPolicy } from '../auth/passwords.js';
 import { checkDependencies } from '../services/systemStats.js';
+import { LinuxUserService } from '../services/linuxUsers.js';
+import { createLogger, LogRingBuffer } from '../logger.js';
 import { builtinTemplateDir, loadTemplates } from '@gamedock/game-templates';
 
 /**
@@ -210,6 +213,51 @@ async function main(): Promise<void> {
       break;
     }
 
+    case 'instances:migrate-user-isolation': {
+      if (process.platform === 'win32') {
+        console.log('instances:migrate-user-isolation is a no-op on Windows.');
+        break;
+      }
+      const dryRun = args.includes('--dry-run');
+      const db = await openDb();
+      const instances = new InstanceRepository(db);
+      const { logger } = createLogger(config.isProduction, new LogRingBuffer());
+      const linuxUsers = new LinuxUserService(
+        { enabled: true, appDir: config.appDir },
+        logger.child({ component: 'linux-users' }),
+      );
+
+      const rows = await instances.list();
+      const pending = rows.filter((row) => !row.linux_username);
+      if (pending.length === 0) {
+        console.log('All instances already have a dedicated Linux user provisioned.');
+        await db.close();
+        break;
+      }
+
+      console.log(
+        `${pending.length} of ${rows.length} instance(s) need a dedicated Linux user.` +
+          (dryRun ? ' (dry run - nothing will change)' : ''),
+      );
+      for (const row of pending) {
+        if (dryRun) {
+          console.log(`  would provision: ${row.name} (${row.id})`);
+          continue;
+        }
+        try {
+          const { username, uid } = await linuxUsers.provision(row.id);
+          await instances.update(row.id, { linuxUsername: username, linuxUid: uid });
+          console.log(`  provisioned: ${row.name} (${row.id}) -> ${username} (uid ${uid})`);
+        } catch (err) {
+          console.error(
+            `  FAILED: ${row.name} (${row.id}): ${err instanceof Error ? err.message : err}`,
+          );
+        }
+      }
+      await db.close();
+      break;
+    }
+
     case 'repair-permissions': {
       if (process.platform === 'win32') {
         console.log('repair-permissions is a no-op on Windows.');
@@ -251,6 +299,9 @@ Commands:
   doctor                           Check dependencies and configuration
   instances:list                   List server instances
   repair-permissions               Tighten file permissions on data dirs
+  instances:migrate-user-isolation [--dry-run]
+                                    Provision a dedicated Linux user for
+                                    instances that don't have one yet
 `);
       if (command) {
         console.error(`Unknown command: ${command}`);

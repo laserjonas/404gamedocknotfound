@@ -146,6 +146,14 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    id: 4,
+    name: 'instance-user-isolation',
+    sql: `
+      ALTER TABLE server_instances ADD COLUMN linux_username TEXT;
+      ALTER TABLE server_instances ADD COLUMN linux_uid INTEGER;
+    `,
+  },
 ];
 
 export async function runMigrations(db: DatabaseClient, logger?: Logger): Promise<void> {

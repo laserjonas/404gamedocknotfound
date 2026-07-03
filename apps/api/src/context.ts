@@ -18,6 +18,7 @@ import { JobService } from './services/jobs.js';
 import { BackupService } from './services/backups.js';
 import { FileService } from './services/files.js';
 import { InstanceService } from './services/instances.js';
+import { LinuxUserService } from './services/linuxUsers.js';
 import { SystemStatsService } from './services/systemStats.js';
 import { CrashRestartTracker } from './services/crashRestart.js';
 import { SelfUpdateService } from './services/selfUpdate.js';
@@ -50,6 +51,7 @@ export interface AppContext {
   backups: BackupService;
   files: FileService;
   instances: InstanceService;
+  linuxUsers: LinuxUserService;
   systemStats: SystemStatsService;
   selfUpdate: SelfUpdateService;
   logs: LogService;
@@ -130,6 +132,10 @@ export async function createContext(
   const jobService = new JobService(repos.jobs, repos.instances, events, componentLogger('jobs'));
   const backups = new BackupService(config.backupDir, repos.backups);
   const files = new FileService(config.maxUploadBytes);
+  const linuxUsers = new LinuxUserService(
+    { enabled: config.instanceUserIsolation, appDir: config.appDir },
+    componentLogger('linux-users'),
+  );
   const instances = new InstanceService(
     repos.instances,
     repos.backups,
@@ -137,6 +143,7 @@ export async function createContext(
     jobService,
     processes,
     backups,
+    linuxUsers,
     config,
     componentLogger('instances'),
   );
@@ -257,6 +264,7 @@ export async function createContext(
     backups,
     files,
     instances,
+    linuxUsers,
     systemStats,
     selfUpdate,
     logs,
