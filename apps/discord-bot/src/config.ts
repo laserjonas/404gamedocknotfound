@@ -41,6 +41,7 @@ const envSchema = z.object({
     .min(1, 'GAMEDOCK_API_TOKEN is required (an admin-level GameDock API token)'),
   GAMEDOCK_BOT_DATA_DIR: z.string().default('./data'),
   RECONCILE_INTERVAL_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
+  UPDATE_CHECK_INTERVAL_MINUTES: z.coerce.number().int().min(1).max(1440).default(5),
 });
 
 export interface BotConfig {
@@ -50,6 +51,7 @@ export interface BotConfig {
   gamedockApiToken: string;
   dataDir: string;
   reconcileIntervalMs: number;
+  updateCheckIntervalMs: number;
 }
 
 /**
@@ -75,5 +77,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
     gamedockApiToken: e.GAMEDOCK_API_TOKEN,
     dataDir: resolve(configBaseDir, e.GAMEDOCK_BOT_DATA_DIR),
     reconcileIntervalMs: e.RECONCILE_INTERVAL_MINUTES * 60 * 1000,
+    updateCheckIntervalMs: e.UPDATE_CHECK_INTERVAL_MINUTES * 60 * 1000,
   };
 }

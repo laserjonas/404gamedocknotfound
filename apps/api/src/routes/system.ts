@@ -25,7 +25,8 @@ const gamedockVersion = (JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { 
 export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): void {
   // Unauthenticated liveness probe (no sensitive data).
   app.get('/api/system/health', async () => {
-    return { status: 'ok', uptime: process.uptime(), version: gamedockVersion };
+    const commit = await ctx.selfUpdate.getCurrentCommit();
+    return { status: 'ok', uptime: process.uptime(), version: gamedockVersion, commit };
   });
 
   app.get('/api/system/stats', { preHandler: requireRole('viewer') }, async () => {

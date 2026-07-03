@@ -27,6 +27,16 @@ still happens in the GameDock web UI by an admin or operator. There's no
   bot's side. Every 15 minutes (configurable) the bot checks GameDock's real
   instance list and frees up a user's quota slot if an admin deleted their
   instance directly in the web UI instead of through the bot.
+- GameDock's self-update (Settings -> Application updates) rebuilds and
+  redeploys every workspace package, including this bot - but it only
+  restarts the main API process, since it has no way of knowing a separate
+  `gamedock-discord-bot` systemd unit exists. Every 5 minutes (configurable)
+  the bot checks GameDock's reported commit and restarts itself once it
+  notices a change, so it picks up the freshly-deployed code too (its own
+  systemd unit's `Restart=always` brings it back up). This only works for
+  installs that actually deploy via self-update or `install.sh`'s rsync -
+  see `RECONCILE_INTERVAL_MINUTES`'s sibling setting,
+  `UPDATE_CHECK_INTERVAL_MINUTES`, in `.env.example`.
 
 ## Setup
 

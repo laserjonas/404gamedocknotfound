@@ -1,4 +1,10 @@
-import type { ApiErrorBody, GameTemplateDto, InstanceDto, JobDto } from '@gamedock/shared';
+import type {
+  ApiErrorBody,
+  GameTemplateDto,
+  HealthDto,
+  InstanceDto,
+  JobDto,
+} from '@gamedock/shared';
 
 export class GameDockApiError extends Error {
   constructor(
@@ -64,5 +70,9 @@ export class GameDockClient {
 
   listInstances(): Promise<InstanceDto[]> {
     return this.request('GET', '/api/instances');
+  }
+
+  getHealth(): Promise<HealthDto> {
+    return this.request('GET', '/api/system/health');
   }
 }

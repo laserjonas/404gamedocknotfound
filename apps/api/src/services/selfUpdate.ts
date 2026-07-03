@@ -94,6 +94,13 @@ export class SelfUpdateService {
     }
   }
 
+  /** The commit currently on disk, from the local state file only - no network call.
+   * Cheap enough to read on every health check. */
+  async getCurrentCommit(): Promise<string | null> {
+    const state = await this.readState();
+    return state?.commit ?? null;
+  }
+
   private requireConfigured(): void {
     if (!this.config.repoUrl) {
       throw badRequest(
