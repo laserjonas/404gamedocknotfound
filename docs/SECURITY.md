@@ -196,6 +196,33 @@ Revoke a token any time from Settings, or - if you suspect one has leaked -
 an **admin** can revoke every token for an account in one step (Users page →
 Reset API tokens, or `PATCH /api/users/:id {"resetApiTokens": true}`).
 
+### Discord bot (optional, `apps/discord-bot`)
+
+The optional Discord bot (`docs/DISCORD_BOT.md`) that lets Discord members
+self-request a game server is a fully separate process, talking to GameDock
+purely through the REST API using one API token created the normal way
+above. Because instance creation requires the `admin` role, that token is
+**admin-equivalent** - the bot can create, install, and manage any instance,
+not just ones it created itself (GameDock's role model has no
+per-token/per-user scoping). Treat the bot's `GAMEDOCK_API_TOKEN` like a
+root credential: it lives only in the bot's own `.env`
+(`/opt/gamedock/apps/discord-bot/.env`), kept separate from the main app's,
+readable only by the `gamedock` user (`chmod 640`). If it leaks, revoke it
+immediately (Settings → API tokens) and issue a new one.
+
+The bot's own systemd unit (`gamedock-discord-bot.service`) never receives
+`sudo` or any privilege escalation (`NoNewPrivileges=true`, stricter than
+the main `gamedock.service`, which needs `false` for the per-instance
+isolation feature) - its only capability is outbound HTTPS to the GameDock
+API and the Discord gateway.
+
+Server ownership/quota tracking (which Discord user requested which
+instance, and each role's limits) lives only in the bot's own local SQLite
+database, not in GameDock itself - GameDock's data model has no per-instance
+owner concept. This is a deliberate scope boundary, not an oversight: adding
+real per-user ownership/scoped tokens to GameDock's core would be a
+materially larger change (see `docs/ROADMAP.md`).
+
 ## What you must do
 
 1. **Never expose port 8340 directly.** Bind to `127.0.0.1` (default) and put

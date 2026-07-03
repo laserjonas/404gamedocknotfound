@@ -20,14 +20,21 @@ Monorepo: pnpm workspaces + TypeScript, Node >= 20.
   (`templates/*.json`): install method (steamcmd app id, or generic `url` +
   archive), start/stop commands, variables, ports. Adding a game = adding a
   template JSON, usually no code changes. See `docs/GAME_TEMPLATES.md`.
+- `apps/discord-bot` — optional, opt-in companion service: Discord slash
+  commands (`/request-server`, `/gamedock-config`) let Discord members
+  self-service-provision a game server, limited by per-role quotas
+  configured from Discord. Fully decoupled from the main app — own process,
+  own SQLite DB, own systemd unit — talking to `apps/api` only through the
+  REST API with one admin-level API token. See `docs/DISCORD_BOT.md`.
 - `scripts/` — `install.sh` (single-script Debian bootstrap: system deps,
   `gamedock` user/directories, build + rsync to `/opt/gamedock`, optional
   Nginx+TLS reverse proxy with a domain prompt, optional first-admin
   creation — safe to re-run, see below), `install-steamcmd.sh` (also called
   automatically from `install.sh` unless declined), `systemd/gamedock.service`.
 - `docs/` — INSTALL_DEBIAN.md, DEPLOYMENT.md, API.md, GAME_TEMPLATES.md,
-  SECURITY.md, ROADMAP.md (backlog of larger not-yet-scheduled items). Keep
-  these in sync with routes/config/templates when they change.
+  SECURITY.md, ROADMAP.md (backlog of larger not-yet-scheduled items),
+  DISCORD_BOT.md. Keep these in sync with routes/config/templates when they
+  change.
 
 ## Commands
 
@@ -53,7 +60,7 @@ pnpm lint
 - Minecraft Java installs auto-resolve the required JDK major version per
   Mojang version metadata and download it from Adoptium (`javaRuntime.ts`) —
   don't hardcode a Java version.
-- Version number lives in root `package.json`; bump it (all 5 package.json files
+- Version number lives in root `package.json`; bump it (all 6 package.json files
   currently kept in sync) when shipping a user-visible change, exposed via
   `/api/system/health` and the web header.
 

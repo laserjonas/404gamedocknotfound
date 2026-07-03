@@ -1,0 +1,33 @@
+[Unit]
+Description=GameDock Discord bot - self-service game server requests
+After=network-online.target gamedock.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gamedock
+Group=gamedock
+WorkingDirectory=/opt/gamedock/apps/discord-bot
+EnvironmentFile=/opt/gamedock/apps/discord-bot/.env
+ExecStart=/usr/bin/node /opt/gamedock/apps/discord-bot/dist/index.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+# --- Hardening -------------------------------------------------------------
+# Unlike the main gamedock.service, this process never needs sudo or any
+# privilege escalation (it only talks to the GameDock REST API over HTTP),
+# so it can be locked down further.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/gamedock-discord-bot /opt/gamedock/apps/discord-bot
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

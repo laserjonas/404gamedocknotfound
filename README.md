@@ -29,6 +29,8 @@ from a clean web interface.
 - **Jobs** — long-running installs/updates/backups run as tracked jobs with live logs
 - **Users & roles** — admin / operator / viewer with role-based access control,
   optional per-user TOTP two-factor authentication and passkey (WebAuthn) login
+- **Discord bot** (optional) — self-service `/request-server` for your Discord
+  members, limited by per-role quotas configured from Discord itself
 - **Security** — bcrypt password hashing, session cookies + CSRF tokens, login
   rate limiting, audit log with automatic retention, path traversal protection,
   no shell command construction, never runs as root
@@ -81,6 +83,7 @@ exits, the panel is up and running under systemd. Safe to re-run any time
 - [Security notes](docs/SECURITY.md)
 - [Game templates](docs/GAME_TEMPLATES.md)
 - [REST API](docs/API.md)
+- [Discord bot (optional)](docs/DISCORD_BOT.md)
 - [Roadmap](docs/ROADMAP.md)
 
 ## CLI

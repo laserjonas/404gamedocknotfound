@@ -422,3 +422,4 @@ if [[ "${GAMEDOCK_CREATE_ADMIN}" != y ]]; then
   echo "    Create an admin user: sudo -u ${GAMEDOCK_USER} env CI=true pnpm --dir ${APP_DIR} gamedock user:create-admin <username>"
 fi
 echo "    Logs: journalctl -u gamedock -f"
+echo "    Optional: a Discord bot for self-service server requests - sudo bash scripts/install-discord-bot.sh (see docs/DISCORD_BOT.md)"
