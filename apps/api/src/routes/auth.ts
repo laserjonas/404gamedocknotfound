@@ -1,8 +1,8 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { LoginResponseDto } from '@gamedock/shared';
 import type { AppContext } from '../context.js';
-import { SESSION_COOKIE, requireRole } from '../plugins/auth.js';
+import { SESSION_COOKIE, requireRole, sendLoginResponse } from '../plugins/auth.js';
 import { toUserDto } from '../db/repositories/users.js';
 import { verifyPassword } from '../auth/passwords.js';
 import { badRequest, unauthorized } from '../errors.js';
@@ -26,27 +26,6 @@ const totpDisableSchema = z.object({
 });
 
 export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const cookieOptions = {
-    path: '/',
-    httpOnly: true,
-    sameSite: 'strict' as const,
-    secure: ctx.config.secureCookies,
-    maxAge: 7 * 24 * 60 * 60,
-  };
-
-  const completeLogin = async (
-    reply: FastifyReply,
-    result: { user: ReturnType<typeof toUserDto>; sessionToken: string; csrfToken: string },
-  ): Promise<LoginResponseDto> => {
-    await ctx.audit({
-      userId: result.user.id,
-      username: result.user.username,
-      action: 'auth.login',
-    });
-    reply.setCookie(SESSION_COOKIE, result.sessionToken, cookieOptions);
-    return { status: 'ok', user: result.user, csrfToken: result.csrfToken };
-  };
-
   app.post('/api/auth/login', async (request, reply): Promise<LoginResponseDto> => {
     const parsed = loginSchema.safeParse(request.body);
     if (!parsed.success) throw badRequest('Username and password are required');
@@ -59,7 +38,8 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     if (outcome.status === 'totp_required') {
       return { status: 'totp_required', challengeToken: outcome.challengeToken };
     }
-    return completeLogin(reply, outcome.result);
+    const success = await sendLoginResponse(reply, ctx, outcome.result);
+    return { status: 'ok', ...success };
   });
 
   app.post('/api/auth/login/totp', async (request, reply): Promise<LoginResponseDto> => {
@@ -67,7 +47,8 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     if (!parsed.success) throw badRequest('A verification code is required');
 
     const result = await ctx.auth.completeTotpLogin(parsed.data.challengeToken, parsed.data.code);
-    return completeLogin(reply, result);
+    const success = await sendLoginResponse(reply, ctx, result);
+    return { status: 'ok', ...success };
   });
 
   app.post('/api/auth/logout', async (request, reply) => {

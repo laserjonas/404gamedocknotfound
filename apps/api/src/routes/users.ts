@@ -24,6 +24,8 @@ const patchUserSchema = z.object({
   disabled: z.boolean().optional(),
   /** Admin recovery: force-disable 2FA on an account whose device was lost. */
   resetTotp: z.literal(true).optional(),
+  /** Admin recovery: remove all passkeys from an account that's lost every registered device. */
+  resetPasskeys: z.literal(true).optional(),
 });
 
 export function registerUserRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -95,6 +97,10 @@ export function registerUserRoutes(app: FastifyInstance, ctx: AppContext): void 
     if (patch.resetTotp) {
       await ctx.auth.disableTotp(id);
       changes.push('2FA reset by admin');
+    }
+    if (patch.resetPasskeys) {
+      await ctx.auth.removeAllPasskeysForUser(id);
+      changes.push('passkeys reset by admin');
     }
 
     await ctx.repos.users.update(id, update);

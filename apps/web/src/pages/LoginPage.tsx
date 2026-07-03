@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 
 export function LoginPage() {
-  const { login, completeTotpLogin } = useAuth();
+  const { login, completeTotpLogin, loginWithPasskey } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -11,6 +11,19 @@ export function LoginPage() {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const submitPasskey = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      await loginWithPasskey();
+      navigate('/');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Passkey sign-in failed');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submitPassword = async (e: FormEvent) => {
     e.preventDefault();
@@ -118,6 +131,9 @@ export function LoginPage() {
         {error && <div className="error-text">{error}</div>}
         <button className="btn btn-primary btn-block" disabled={busy}>
           {busy ? 'Signing in...' : 'Sign in'}
+        </button>
+        <button type="button" className="btn btn-block" disabled={busy} onClick={submitPasskey}>
+          Sign in with a passkey
         </button>
         <p className="login-hint">
           First run? Create an admin with <code>pnpm gamedock user:create-admin</code>

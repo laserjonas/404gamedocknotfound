@@ -1,6 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import type { LoginResponseDto, MeResponse, Role, UserDto } from '@gamedock/shared';
+import type {
+  AuthSuccessDto,
+  LoginResponseDto,
+  MeResponse,
+  PasskeyAuthenticationOptionsDto,
+  Role,
+  UserDto,
+} from '@gamedock/shared';
 import { ROLE_LEVELS } from '@gamedock/shared';
+import { startAuthentication } from '@simplewebauthn/browser';
+import type { PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
 import { api, setCsrfToken } from './api';
 
 export type LoginStepResult =
@@ -11,6 +20,7 @@ interface AuthState {
   loading: boolean;
   login(username: string, password: string): Promise<LoginStepResult>;
   completeTotpLogin(challengeToken: string, code: string): Promise<void>;
+  loginWithPasskey(): Promise<void>;
   logout(): Promise<void>;
   hasRole(role: Role): boolean;
   refreshUser(): Promise<void>;
@@ -75,6 +85,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(result.user);
   }, []);
 
+  const loginWithPasskey = useCallback(async () => {
+    const options = await api.post<PasskeyAuthenticationOptionsDto>(
+      '/api/auth/passkeys/login/begin',
+    );
+    const response = await startAuthentication({
+      optionsJSON: options as unknown as PublicKeyCredentialRequestOptionsJSON,
+    });
+    const result = await api.post<AuthSuccessDto>('/api/auth/passkeys/login/complete', {
+      response,
+    });
+    setCsrfToken(result.csrfToken);
+    setUser(result.user);
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await api.post('/api/auth/logout');
@@ -97,7 +121,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, login, completeTotpLogin, logout, hasRole, refreshUser }}
+      value={{
+        user,
+        loading,
+        login,
+        completeTotpLogin,
+        loginWithPasskey,
+        logout,
+        hasRole,
+        refreshUser,
+      }}
     >
       {children}
     </AuthContext.Provider>

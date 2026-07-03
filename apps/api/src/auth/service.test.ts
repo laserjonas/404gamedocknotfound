@@ -6,6 +6,10 @@ import { hashPassword } from './passwords.js';
 import { generateTotpSecret } from './totp.js';
 import type { UserRepository, UserRow } from '../db/repositories/users.js';
 import type { SessionRepository, SessionRow } from '../db/repositories/sessions.js';
+import type {
+  WebauthnCredentialRepository,
+  WebauthnCredentialRow,
+} from '../db/repositories/webauthnCredentials.js';
 
 function fakeUsers(initial: UserRow[] = []): UserRepository {
   const rows = new Map(initial.map((r) => [r.id, r]));
@@ -53,6 +57,73 @@ function fakeSessions(): SessionRepository {
   } as unknown as SessionRepository;
 }
 
+function fakeWebauthnCredentials(
+  initial: WebauthnCredentialRow[] = [],
+): WebauthnCredentialRepository {
+  const rows = new Map(initial.map((r) => [r.id, r]));
+  return {
+    create: async (params: {
+      userId: string;
+      credentialId: string;
+      publicKey: string;
+      counter: number;
+      transports: string | null;
+      deviceType: 'singleDevice' | 'multiDevice';
+      backedUp: boolean;
+      nickname: string;
+    }) => {
+      const row: WebauthnCredentialRow = {
+        id: randomUUID(),
+        user_id: params.userId,
+        credential_id: params.credentialId,
+        public_key: params.publicKey,
+        counter: params.counter,
+        transports: params.transports,
+        device_type: params.deviceType,
+        backed_up: params.backedUp ? 1 : 0,
+        nickname: params.nickname,
+        created_at: new Date().toISOString(),
+        last_used_at: null,
+      };
+      rows.set(row.id, row);
+      return row;
+    },
+    listForUser: async (userId: string) => [...rows.values()].filter((r) => r.user_id === userId),
+    findByCredentialId: async (credentialId: string) =>
+      [...rows.values()].find((r) => r.credential_id === credentialId),
+    countForUser: async (userId: string) =>
+      [...rows.values()].filter((r) => r.user_id === userId).length,
+    updateCounter: async (id: string, counter: number) => {
+      const row = rows.get(id);
+      if (row) {
+        row.counter = counter;
+        row.last_used_at = new Date().toISOString();
+      }
+    },
+    deleteForUser: async (userId: string, id: string) => {
+      const row = rows.get(id);
+      if (!row || row.user_id !== userId) return { changes: 0 };
+      rows.delete(id);
+      return { changes: 1 };
+    },
+    deleteAllForUser: async (userId: string) => {
+      for (const [id, row] of rows) if (row.user_id === userId) rows.delete(id);
+    },
+  } as unknown as WebauthnCredentialRepository;
+}
+
+/** Matches the real constructor's 4 collaborators; passkey ceremony tests below only exercise the guard clauses that don't need a real signed WebAuthn response. */
+function makeService(
+  users: UserRepository,
+  sessions: SessionRepository,
+  webauthnCredentials: WebauthnCredentialRepository = fakeWebauthnCredentials(),
+): AuthService {
+  return new AuthService(users, sessions, webauthnCredentials, {
+    rpId: 'localhost',
+    origin: 'http://localhost:5173',
+  });
+}
+
 async function makeUser(overrides: Partial<UserRow> = {}): Promise<UserRow> {
   return {
     id: randomUUID(),
@@ -76,7 +147,7 @@ afterEach(() => {
 describe('AuthService.login', () => {
   it('completes in one step for an account without 2FA', async () => {
     const user = await makeUser();
-    const service = new AuthService(fakeUsers([user]), fakeSessions());
+    const service = makeService(fakeUsers([user]), fakeSessions());
 
     const outcome = await service.login('alice', 'correct-horse-battery', {});
 
@@ -89,7 +160,7 @@ describe('AuthService.login', () => {
 
   it('rejects a wrong password without revealing which part was wrong', async () => {
     const user = await makeUser();
-    const service = new AuthService(fakeUsers([user]), fakeSessions());
+    const service = makeService(fakeUsers([user]), fakeSessions());
 
     await expect(service.login('alice', 'wrong-password', {})).rejects.toThrow(
       /Invalid username or password/,
@@ -99,7 +170,7 @@ describe('AuthService.login', () => {
   it('returns a totp_required challenge (no session yet) for a 2FA-enabled account', async () => {
     const secret = generateTotpSecret();
     const user = await makeUser({ totp_secret: secret, totp_enabled: 1 });
-    const service = new AuthService(fakeUsers([user]), fakeSessions());
+    const service = makeService(fakeUsers([user]), fakeSessions());
 
     const outcome = await service.login('alice', 'correct-horse-battery', {});
 
@@ -114,7 +185,7 @@ describe('AuthService.completeTotpLogin', () => {
   it('completes login with a valid code for the pending challenge', async () => {
     const secret = generateTotpSecret();
     const user = await makeUser({ totp_secret: secret, totp_enabled: 1 });
-    const service = new AuthService(fakeUsers([user]), fakeSessions());
+    const service = makeService(fakeUsers([user]), fakeSessions());
 
     const outcome = await service.login('alice', 'correct-horse-battery', {});
     if (outcome.status !== 'totp_required') throw new Error('expected totp_required');
@@ -129,7 +200,7 @@ describe('AuthService.completeTotpLogin', () => {
   it('rejects an invalid code and does not complete the login', async () => {
     const secret = generateTotpSecret();
     const user = await makeUser({ totp_secret: secret, totp_enabled: 1 });
-    const service = new AuthService(fakeUsers([user]), fakeSessions());
+    const service = makeService(fakeUsers([user]), fakeSessions());
 
     const outcome = await service.login('alice', 'correct-horse-battery', {});
     if (outcome.status !== 'totp_required') throw new Error('expected totp_required');
@@ -140,7 +211,7 @@ describe('AuthService.completeTotpLogin', () => {
   });
 
   it('rejects an unknown or already-used challenge token', async () => {
-    const service = new AuthService(fakeUsers([]), fakeSessions());
+    const service = makeService(fakeUsers([]), fakeSessions());
     await expect(service.completeTotpLogin('not-a-real-token', '123456')).rejects.toThrow(
       /expired/,
     );
@@ -151,7 +222,7 @@ describe('AuthService 2FA setup', () => {
   it('begins setup, stores an unconfirmed secret, then confirms and enables it', async () => {
     const user = await makeUser();
     const users = fakeUsers([user]);
-    const service = new AuthService(users, fakeSessions());
+    const service = makeService(users, fakeSessions());
 
     const setup = await service.beginTotpSetup(user.id);
     expect(setup.secret).toBeTruthy();
@@ -173,7 +244,7 @@ describe('AuthService 2FA setup', () => {
   it('rejects confirmation with the wrong code and leaves 2FA disabled', async () => {
     const user = await makeUser();
     const users = fakeUsers([user]);
-    const service = new AuthService(users, fakeSessions());
+    const service = makeService(users, fakeSessions());
 
     await service.beginTotpSetup(user.id);
     await expect(service.confirmTotpSetup(user.id, '000000')).rejects.toThrow(
@@ -188,12 +259,188 @@ describe('AuthService 2FA setup', () => {
     const secret = generateTotpSecret();
     const user = await makeUser({ totp_secret: secret, totp_enabled: 1 });
     const users = fakeUsers([user]);
-    const service = new AuthService(users, fakeSessions());
+    const service = makeService(users, fakeSessions());
 
     await service.disableTotp(user.id);
 
     const after = await users.findById(user.id);
     expect(after?.totp_enabled).toBe(0);
     expect(after?.totp_secret).toBeNull();
+  });
+});
+
+describe('AuthService passkeys - registration', () => {
+  it('begins registration and returns usable, discoverable-credential options', async () => {
+    const user = await makeUser();
+    const service = makeService(fakeUsers([user]), fakeSessions());
+
+    const options = await service.beginPasskeyRegistration(user.id);
+
+    expect(options.challenge).toBeTruthy();
+    expect(options.rp.id).toBe('localhost');
+    expect(options.user.name).toBe('alice');
+    expect(options.authenticatorSelection?.residentKey).toBe('required');
+  });
+
+  it('a second beginPasskeyRegistration call replaces the first pending challenge (one at a time, like beginTotpSetup)', async () => {
+    const user = await makeUser();
+    const service = makeService(fakeUsers([user]), fakeSessions());
+
+    const first = await service.beginPasskeyRegistration(user.id);
+    const second = await service.beginPasskeyRegistration(user.id);
+    expect(second.challenge).not.toBe(first.challenge);
+  });
+
+  it('rejects finishing registration when there is no pending challenge at all', async () => {
+    const user = await makeUser();
+    const service = makeService(fakeUsers([user]), fakeSessions());
+
+    await expect(
+      service.finishPasskeyRegistration(user.id, { id: 'whatever' } as never, 'My device'),
+    ).rejects.toThrow(/expired/i);
+  });
+
+  it('excludes already-registered credentials from a fresh registration attempt', async () => {
+    const user = await makeUser();
+    const credentials = fakeWebauthnCredentials([
+      {
+        id: randomUUID(),
+        user_id: user.id,
+        credential_id: 'existing-cred-id',
+        public_key: 'unused',
+        counter: 0,
+        transports: null,
+        device_type: 'singleDevice',
+        backed_up: 0,
+        nickname: 'Existing key',
+        created_at: new Date().toISOString(),
+        last_used_at: null,
+      },
+    ]);
+    const service = makeService(fakeUsers([user]), fakeSessions(), credentials);
+
+    const options = await service.beginPasskeyRegistration(user.id);
+    expect(options.excludeCredentials?.map((c) => c.id)).toContain('existing-cred-id');
+  });
+});
+
+describe('AuthService passkeys - login', () => {
+  it('rejects a login attempt for a credential id that was never registered', async () => {
+    const service = makeService(fakeUsers([]), fakeSessions());
+    await expect(
+      service.completePasskeyLogin(
+        { id: 'unknown-credential', response: { userHandle: undefined } } as never,
+        {},
+      ),
+    ).rejects.toThrow(/not recognized/i);
+  });
+
+  it('beginPasskeyLogin returns usernameless options (no allowCredentials)', async () => {
+    const service = makeService(fakeUsers([]), fakeSessions());
+    const options = await service.beginPasskeyLogin();
+    expect(options.challenge).toBeTruthy();
+    expect(options.allowCredentials ?? []).toHaveLength(0);
+  });
+});
+
+describe('AuthService passkeys - management', () => {
+  it('lists only the calling user’s own passkeys', async () => {
+    const alice = await makeUser({ username: 'alice' });
+    const bob = await makeUser({ username: 'bob' });
+    const credentials = fakeWebauthnCredentials([
+      {
+        id: randomUUID(),
+        user_id: alice.id,
+        credential_id: 'alice-cred',
+        public_key: 'x',
+        counter: 0,
+        transports: null,
+        device_type: 'singleDevice',
+        backed_up: 0,
+        nickname: "Alice's phone",
+        created_at: new Date().toISOString(),
+        last_used_at: null,
+      },
+      {
+        id: randomUUID(),
+        user_id: bob.id,
+        credential_id: 'bob-cred',
+        public_key: 'x',
+        counter: 0,
+        transports: null,
+        device_type: 'singleDevice',
+        backed_up: 0,
+        nickname: "Bob's key",
+        created_at: new Date().toISOString(),
+        last_used_at: null,
+      },
+    ]);
+    const service = makeService(fakeUsers([alice, bob]), fakeSessions(), credentials);
+
+    const alicePasskeys = await service.listPasskeys(alice.id);
+    expect(alicePasskeys).toHaveLength(1);
+    expect(alicePasskeys[0]?.nickname).toBe("Alice's phone");
+  });
+
+  it('removePasskey cannot delete another user’s credential by id', async () => {
+    const alice = await makeUser({ username: 'alice' });
+    const bob = await makeUser({ username: 'bob' });
+    const bobCredId = randomUUID();
+    const credentials = fakeWebauthnCredentials([
+      {
+        id: bobCredId,
+        user_id: bob.id,
+        credential_id: 'bob-cred',
+        public_key: 'x',
+        counter: 0,
+        transports: null,
+        device_type: 'singleDevice',
+        backed_up: 0,
+        nickname: "Bob's key",
+        created_at: new Date().toISOString(),
+        last_used_at: null,
+      },
+    ]);
+    const service = makeService(fakeUsers([alice, bob]), fakeSessions(), credentials);
+
+    await expect(service.removePasskey(alice.id, bobCredId)).rejects.toThrow(/not found/i);
+    expect(await service.listPasskeys(bob.id)).toHaveLength(1);
+  });
+
+  it('removeAllPasskeysForUser clears every credential for that user (admin recovery)', async () => {
+    const alice = await makeUser({ username: 'alice' });
+    const credentials = fakeWebauthnCredentials([
+      {
+        id: randomUUID(),
+        user_id: alice.id,
+        credential_id: 'a',
+        public_key: 'x',
+        counter: 0,
+        transports: null,
+        device_type: 'singleDevice',
+        backed_up: 0,
+        nickname: 'One',
+        created_at: new Date().toISOString(),
+        last_used_at: null,
+      },
+      {
+        id: randomUUID(),
+        user_id: alice.id,
+        credential_id: 'b',
+        public_key: 'x',
+        counter: 0,
+        transports: null,
+        device_type: 'singleDevice',
+        backed_up: 0,
+        nickname: 'Two',
+        created_at: new Date().toISOString(),
+        last_used_at: null,
+      },
+    ]);
+    const service = makeService(fakeUsers([alice]), fakeSessions(), credentials);
+
+    expect(await service.listPasskeys(alice.id)).toHaveLength(2);
+    await service.removeAllPasskeysForUser(alice.id);
+    expect(await service.listPasskeys(alice.id)).toHaveLength(0);
   });
 });

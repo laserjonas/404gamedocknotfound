@@ -15,24 +15,30 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 
 ## Auth
 
-| Method | Path                 | Role   | Description                                                                                                                         |
-| ------ | -------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/auth/login`        | –      | Body `{username, password}` → `{status:'ok', user, csrfToken}` + cookie, or `{status:'totp_required', challengeToken}` if 2FA is on |
-| POST   | `/auth/login/totp`   | –      | Body `{challengeToken, code}` → completes login the same way as a plain `/auth/login`                                               |
-| POST   | `/auth/logout`       | –      | Clears the session                                                                                                                  |
-| GET    | `/auth/me`           | viewer | Current user + CSRF token                                                                                                           |
-| POST   | `/auth/totp/setup`   | viewer | Generates a new (unconfirmed) secret for the current user → `{secret, otpauthUrl, qrCodeDataUrl}`                                   |
-| POST   | `/auth/totp/confirm` | viewer | Body `{code}` - verifies the first code and turns 2FA on                                                                            |
-| POST   | `/auth/totp/disable` | viewer | Body `{password}` - re-verifies the password, then turns 2FA off                                                                    |
+| Method | Path                               | Role   | Description                                                                                                                         |
+| ------ | ---------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/auth/login`                      | –      | Body `{username, password}` → `{status:'ok', user, csrfToken}` + cookie, or `{status:'totp_required', challengeToken}` if 2FA is on |
+| POST   | `/auth/login/totp`                 | –      | Body `{challengeToken, code}` → completes login the same way as a plain `/auth/login`                                               |
+| POST   | `/auth/logout`                     | –      | Clears the session                                                                                                                  |
+| GET    | `/auth/me`                         | viewer | Current user + CSRF token                                                                                                           |
+| POST   | `/auth/totp/setup`                 | viewer | Generates a new (unconfirmed) secret for the current user → `{secret, otpauthUrl, qrCodeDataUrl}`                                   |
+| POST   | `/auth/totp/confirm`               | viewer | Body `{code}` - verifies the first code and turns 2FA on                                                                            |
+| POST   | `/auth/totp/disable`               | viewer | Body `{password}` - re-verifies the password, then turns 2FA off                                                                    |
+| POST   | `/auth/passkeys/login/begin`       | –      | Usernameless - no body. Returns WebAuthn authentication options (pass to `startAuthentication`)                                     |
+| POST   | `/auth/passkeys/login/complete`    | –      | Body `{response}` (from `startAuthentication`) → `{user, csrfToken}` + cookie, a complete login on its own (no TOTP step)           |
+| POST   | `/auth/passkeys/register/begin`    | viewer | Returns WebAuthn registration options for the current user (pass to `startRegistration`)                                            |
+| POST   | `/auth/passkeys/register/complete` | viewer | Body `{nickname, response}` (from `startRegistration`) → the new passkey                                                            |
+| GET    | `/auth/passkeys`                   | viewer | List the current user's registered passkeys                                                                                         |
+| DELETE | `/auth/passkeys/:id`               | viewer | Remove one of the current user's passkeys                                                                                           |
 
 ## Users (admin)
 
-| Method | Path         | Description                                                                                                                                         |
-| ------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/users`     | List users                                                                                                                                          |
-| POST   | `/users`     | Body `{username, password, role}`                                                                                                                   |
-| PATCH  | `/users/:id` | Body `{password?, role?, disabled?, resetTotp?}` (safeguards protect the last admin; `resetTotp:true` force-disables 2FA, e.g. after a lost device) |
-| DELETE | `/users/:id` | Delete user (not yourself)                                                                                                                          |
+| Method | Path         | Description                                                                                                                                                                                               |
+| ------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/users`     | List users                                                                                                                                                                                                |
+| POST   | `/users`     | Body `{username, password, role}`                                                                                                                                                                         |
+| PATCH  | `/users/:id` | Body `{password?, role?, disabled?, resetTotp?, resetPasskeys?}` (safeguards protect the last admin; `resetTotp`/`resetPasskeys: true` force-disable 2FA / remove all passkeys, e.g. after a lost device) |
+| DELETE | `/users/:id` | Delete user (not yourself)                                                                                                                                                                                |
 
 ## Templates
 

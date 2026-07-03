@@ -84,6 +84,16 @@ export function UsersPage() {
     }
   };
 
+  const resetPasskeys = async (user: UserDto) => {
+    setError(null);
+    try {
+      await api.patch(`/api/users/${user.id}`, { resetPasskeys: true });
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reset passkeys');
+    }
+  };
+
   const confirmDelete = async () => {
     if (!deleting) return;
     try {
@@ -155,6 +165,9 @@ export function UsersPage() {
                       Reset 2FA
                     </button>
                   )}
+                  <button className="btn btn-small" onClick={() => void resetPasskeys(user)}>
+                    Reset passkeys
+                  </button>
                   {user.id !== me?.id && (
                     <>
                       <button className="btn btn-small" onClick={() => void toggleDisabled(user)}>

@@ -3,9 +3,16 @@ import type {
   AuditLogDto,
   DependencyStatusDto,
   JobDto,
+  PasskeyDto,
+  PasskeyRegistrationOptionsDto,
   TotpSetupResponseDto,
   UpdateStatusDto,
 } from '@gamedock/shared';
+import { startRegistration } from '@simplewebauthn/browser';
+import type {
+  PublicKeyCredentialCreationOptionsJSON,
+  RegistrationResponseJSON,
+} from '@simplewebauthn/browser';
 import { api, ApiError } from '../api';
 import { useAuth } from '../auth';
 import { formatDate } from '../format';
@@ -26,6 +33,12 @@ export function SettingsPage() {
   const [totpBusy, setTotpBusy] = useState(false);
   const [showDisableForm, setShowDisableForm] = useState(false);
   const [disablePassword, setDisablePassword] = useState('');
+
+  const [passkeys, setPasskeys] = useState<PasskeyDto[]>([]);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [addingPasskey, setAddingPasskey] = useState(false);
+  const [newPasskeyNickname, setNewPasskeyNickname] = useState('');
 
   const loadUpdateStatus = () => {
     setUpdateError(null);
@@ -96,6 +109,50 @@ export function SettingsPage() {
     }
   };
 
+  const loadPasskeys = () => {
+    api
+      .get<PasskeyDto[]>('/api/auth/passkeys')
+      .then(setPasskeys)
+      .catch(() => {});
+  };
+
+  const addPasskey = async () => {
+    setPasskeyError(null);
+    setPasskeyBusy(true);
+    try {
+      const options = await api.post<PasskeyRegistrationOptionsDto>(
+        '/api/auth/passkeys/register/begin',
+      );
+      const response = await startRegistration({
+        optionsJSON: options as unknown as PublicKeyCredentialCreationOptionsJSON,
+      });
+      await api.post('/api/auth/passkeys/register/complete', {
+        nickname: newPasskeyNickname.trim() || 'Passkey',
+        response: response as unknown as RegistrationResponseJSON,
+      });
+      setAddingPasskey(false);
+      setNewPasskeyNickname('');
+      loadPasskeys();
+    } catch (err) {
+      setPasskeyError(err instanceof Error ? err.message : 'Failed to add passkey');
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
+
+  const removePasskey = async (id: string) => {
+    setPasskeyError(null);
+    setPasskeyBusy(true);
+    try {
+      await api.delete(`/api/auth/passkeys/${id}`);
+      loadPasskeys();
+    } catch (err) {
+      setPasskeyError(err instanceof Error ? err.message : 'Failed to remove passkey');
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
+
   useEffect(() => {
     api
       .get<DependencyStatusDto[]>('/api/system/dependencies')
@@ -108,6 +165,7 @@ export function SettingsPage() {
         .catch(() => {});
       loadUpdateStatus();
     }
+    loadPasskeys();
   }, [hasRole]);
 
   return (
@@ -210,6 +268,79 @@ export function SettingsPage() {
           </>
         )}
         {totpError && <div className="error-text">{totpError}</div>}
+      </div>
+
+      <div className="card form-card">
+        <h2>Passkeys</h2>
+        <p className="muted">
+          Sign in with a device passkey (Windows Hello, Touch ID, a security key, ...) instead of a
+          password - a passkey is a complete sign-in on its own, no separate code needed afterward.
+          You can register more than one.
+        </p>
+        {passkeys.length > 0 && (
+          <table>
+            <thead>
+              <tr>
+                <th>Nickname</th>
+                <th>Created</th>
+                <th>Last used</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {passkeys.map((passkey) => (
+                <tr key={passkey.id}>
+                  <td>{passkey.nickname}</td>
+                  <td className="muted">{formatDate(passkey.createdAt)}</td>
+                  <td className="muted">
+                    {passkey.lastUsedAt ? formatDate(passkey.lastUsedAt) : 'never'}
+                  </td>
+                  <td>
+                    <button
+                      className="btn btn-small"
+                      disabled={passkeyBusy}
+                      onClick={() => void removePasskey(passkey.id)}
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {addingPasskey ? (
+          <div className="form-row-inline">
+            <input
+              placeholder="Nickname (e.g. this laptop)"
+              value={newPasskeyNickname}
+              onChange={(e) => setNewPasskeyNickname(e.target.value)}
+              autoFocus
+            />
+            <button
+              className="btn btn-primary btn-small"
+              disabled={passkeyBusy}
+              onClick={() => void addPasskey()}
+            >
+              Continue
+            </button>
+            <button
+              className="btn btn-small"
+              onClick={() => {
+                setAddingPasskey(false);
+                setNewPasskeyNickname('');
+                setPasskeyError(null);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button className="btn btn-small" onClick={() => setAddingPasskey(true)}>
+            Add a passkey
+          </button>
+        )}
+        {passkeyError && <div className="error-text">{passkeyError}</div>}
       </div>
 
       {hasRole('admin') && (

@@ -58,6 +58,14 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  /**
+   * The origin GameDock is actually reached at (e.g. https://gamedock.example.com),
+   * used to validate passkey/WebAuthn ceremonies (expected origin + Relying
+   * Party ID). Can't be inferred from GAMEDOCK_HOST/PORT, which are just the
+   * bind address behind a reverse proxy. Required in production; falls back
+   * to the Vite dev server's origin otherwise.
+   */
+  GAMEDOCK_PUBLIC_ORIGIN: z.string().optional(),
 });
 
 export interface AppConfig {
@@ -80,6 +88,10 @@ export interface AppConfig {
   updateBranch: string;
   auditRetentionDays: number;
   instanceUserIsolation: boolean;
+  /** Full origin (scheme+host+port), used as WebAuthn's expectedOrigin. */
+  publicOrigin: string;
+  /** Hostname only (no scheme/port) - WebAuthn's Relying Party ID. */
+  rpId: string;
 }
 
 const INSECURE_SECRETS = new Set(['dev-only-insecure-secret', 'change-me-to-a-long-random-string']);
@@ -116,6 +128,31 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     mkdirSync(dir, { recursive: true });
   }
 
+  let publicOrigin: string;
+  let rpId: string;
+  if (e.GAMEDOCK_PUBLIC_ORIGIN) {
+    let url: URL;
+    try {
+      url = new URL(e.GAMEDOCK_PUBLIC_ORIGIN);
+    } catch {
+      throw new Error(
+        `GAMEDOCK_PUBLIC_ORIGIN must be a valid absolute URL, e.g. https://gamedock.example.com`,
+      );
+    }
+    publicOrigin = url.origin;
+    rpId = url.hostname;
+  } else if (isProduction) {
+    throw new Error(
+      'GAMEDOCK_PUBLIC_ORIGIN must be set in production (e.g. https://gamedock.example.com) - ' +
+        'required to validate passkey/WebAuthn login origin and derive the Relying Party ID.',
+    );
+  } else {
+    // Matches the Vite dev server (`pnpm dev`) - a valid WebAuthn secure
+    // context without needing TLS locally.
+    publicOrigin = 'http://localhost:5173';
+    rpId = 'localhost';
+  }
+
   return {
     host: e.GAMEDOCK_HOST,
     port: e.GAMEDOCK_PORT,
@@ -136,6 +173,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     updateBranch: e.GAMEDOCK_UPDATE_BRANCH,
     auditRetentionDays: e.GAMEDOCK_AUDIT_RETENTION_DAYS,
     instanceUserIsolation: e.GAMEDOCK_INSTANCE_USER_ISOLATION,
+    publicOrigin,
+    rpId,
   };
 }
 

@@ -48,6 +48,48 @@ export interface TotpSetupResponseDto {
 }
 
 // ---------------------------------------------------------------------------
+// Passkeys (WebAuthn/FIDO2)
+// ---------------------------------------------------------------------------
+
+/** A completed login - the terminal shape for password(+TOTP) and passkey login alike. */
+export interface AuthSuccessDto {
+  user: UserDto;
+  csrfToken: string;
+}
+
+export interface PasskeyDto {
+  id: string;
+  nickname: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  deviceType: 'singleDevice' | 'multiDevice';
+}
+
+/**
+ * These four are pass-through WebAuthn JSON blobs (from @simplewebauthn/server
+ * on the API side, consumed by @simplewebauthn/browser on the web side).
+ * Deliberately untyped here rather than importing either package's types:
+ * this shared package is consumed by both apps/api and apps/web, which each
+ * depend on a *different* one of the two (server vs. browser) - importing
+ * either one's types here would make the other app's typecheck need a
+ * package it doesn't otherwise depend on. Each side casts to its own
+ * concrete library type at the point it hands off to/from the real
+ * WebAuthn calls.
+ */
+export type PasskeyRegistrationOptionsDto = Record<string, unknown>;
+
+export interface FinishPasskeyRegistrationRequest {
+  nickname: string;
+  response: Record<string, unknown>;
+}
+
+export type PasskeyAuthenticationOptionsDto = Record<string, unknown>;
+
+export interface CompletePasskeyLoginRequest {
+  response: Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
 // Game templates
 // ---------------------------------------------------------------------------
 

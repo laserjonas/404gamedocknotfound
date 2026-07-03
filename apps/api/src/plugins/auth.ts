@@ -1,7 +1,8 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { Role } from '@gamedock/shared';
-import type { AuthService, AuthenticatedSession } from '../auth/service.js';
+import type { AuthSuccessDto, Role } from '@gamedock/shared';
+import type { AuthResult, AuthService, AuthenticatedSession } from '../auth/service.js';
 import { roleAtLeast } from '../auth/service.js';
+import type { AppContext } from '../context.js';
 import { forbidden, unauthorized } from '../errors.js';
 
 export const SESSION_COOKIE = 'gamedock_session';
@@ -21,6 +22,32 @@ export function buildAuthHook(authService: AuthService) {
     if (!token) return;
     request.auth = await authService.validateSession(token);
   };
+}
+
+/**
+ * Sets the session cookie, audit-logs the login, and returns the response
+ * body - the shared terminal for every login method (password/TOTP,
+ * passkey), matching how AuthService's own `completeLogin` is the shared
+ * terminal on the service side.
+ */
+export async function sendLoginResponse(
+  reply: FastifyReply,
+  ctx: AppContext,
+  result: AuthResult,
+): Promise<AuthSuccessDto> {
+  await ctx.audit({
+    userId: result.user.id,
+    username: result.user.username,
+    action: 'auth.login',
+  });
+  reply.setCookie(SESSION_COOKIE, result.sessionToken, {
+    path: '/',
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: ctx.config.secureCookies,
+    maxAge: 7 * 24 * 60 * 60,
+  });
+  return { user: result.user, csrfToken: result.csrfToken };
 }
 
 /**

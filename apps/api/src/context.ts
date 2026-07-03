@@ -10,6 +10,7 @@ import { JobRepository } from './db/repositories/jobs.js';
 import { BackupRepository } from './db/repositories/backups.js';
 import { AuditRepository } from './db/repositories/audit.js';
 import { SettingsRepository } from './db/repositories/settings.js';
+import { WebauthnCredentialRepository } from './db/repositories/webauthnCredentials.js';
 import { AuthService } from './auth/service.js';
 import { TemplateService } from './services/templates.js';
 import { EventHub } from './services/events.js';
@@ -42,6 +43,7 @@ export interface AppContext {
     backups: BackupRepository;
     audit: AuditRepository;
     settings: SettingsRepository;
+    webauthnCredentials: WebauthnCredentialRepository;
   };
   auth: AuthService;
   templates: TemplateService;
@@ -85,6 +87,7 @@ export async function createContext(
     backups: new BackupRepository(db),
     audit: new AuditRepository(db),
     settings: new SettingsRepository(db),
+    webauthnCredentials: new WebauthnCredentialRepository(db),
   };
 
   const events = new EventHub();
@@ -102,7 +105,10 @@ export async function createContext(
   const componentLogger: AppContext['componentLogger'] = (name) =>
     logRegistry.register(logger.child({ component: name }));
 
-  const auth = new AuthService(repos.users, repos.sessions);
+  const auth = new AuthService(repos.users, repos.sessions, repos.webauthnCredentials, {
+    rpId: config.rpId,
+    origin: config.publicOrigin,
+  });
   const templates = new TemplateService(db, config.dataDir, componentLogger('templates'));
   await templates.reload();
 

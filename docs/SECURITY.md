@@ -137,6 +137,31 @@ server-side only; there's no recovery-codes flow yet, so a lost device means
 an **admin** has to reset that account's 2FA (Users page → Reset 2FA, or
 `PATCH /api/users/:id {"resetTotp": true}`) before the owner can sign back in.
 
+### Passkeys (WebAuthn/FIDO2)
+
+Any user can register one or more passkeys from Settings → Passkeys (Windows
+Hello, Touch ID, a security key, a phone via hybrid transport, ...). Unlike
+TOTP, **a passkey login is a complete, standalone sign-in** - no separate
+password or TOTP step follows it - because a passkey is already
+phishing-resistant and typically gated by a device biometric or PIN (device
+possession + something you are/know), so requiring a second factor on top
+would be redundant rather than additive. Login is usernameless: the browser
+prompts for any passkey registered for this site, and the server identifies
+the account from the credential afterward.
+
+What's stored server-side: a public key, the credential ID, and a signature
+counter (used to detect a cloned authenticator) - never anything from the
+authenticator's biometric sensor, which never leaves the user's device.
+Registration and login are validated against `GAMEDOCK_PUBLIC_ORIGIN`
+(required in production) for both the expected origin and the WebAuthn
+Relying Party ID, so a credential registered for one deployment can't be
+replayed against another.
+
+A user can register more than one passkey, so losing a single device isn't
+automatically a lockout the way losing a TOTP device is - but if every
+registered passkey is lost, the same admin-reset pattern as TOTP applies
+(Users page → Reset passkeys, or `PATCH /api/users/:id {"resetPasskeys": true}`).
+
 ## What you must do
 
 1. **Never expose port 8340 directly.** Bind to `127.0.0.1` (default) and put

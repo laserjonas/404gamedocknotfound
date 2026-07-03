@@ -1,15 +1,36 @@
 import { createHash, randomBytes } from 'node:crypto';
-import type { Role, UserDto } from '@gamedock/shared';
+import type { PasskeyDto, Role, UserDto } from '@gamedock/shared';
 import { ROLE_LEVELS } from '@gamedock/shared';
 import type { UserRepository, UserRow } from '../db/repositories/users.js';
 import { toUserDto } from '../db/repositories/users.js';
 import type { SessionRepository, SessionRow } from '../db/repositories/sessions.js';
+import type {
+  WebauthnCredentialRepository,
+  WebauthnCredentialRow,
+} from '../db/repositories/webauthnCredentials.js';
 import { dummyVerify, verifyPassword } from './passwords.js';
 import { buildTotpEnrollment, generateTotpSecret, verifyTotpCode } from './totp.js';
+import {
+  base64urlToBuffer,
+  buildAuthenticationOptions,
+  buildRegistrationOptions,
+  bufferToBase64url,
+  handleToUserId,
+  parseTransports,
+  verifyAuthentication,
+  verifyRegistration,
+} from './passkey.js';
 import { badRequest, unauthorized } from '../errors.js';
+import type {
+  AuthenticationResponseJSON,
+  PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
+  RegistrationResponseJSON,
+} from '@simplewebauthn/server';
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const TOTP_CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const PASSKEY_CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 const hashToken = (token: string): string => createHash('sha256').update(token).digest('hex');
 
@@ -68,10 +89,25 @@ class LoginThrottle {
 export class AuthService {
   private throttle = new LoginThrottle();
   private totpChallenges = new Map<string, PendingTotpChallenge>();
+  /** One pending registration per user at a time - overwritten on retry, same as beginTotpSetup. */
+  private passkeyRegistrationChallenges = new Map<
+    string,
+    { challenge: string; expiresAt: number }
+  >();
+  /**
+   * Keyed by the WebAuthn challenge value itself, not a second minted token:
+   * generateAuthenticationOptions() already produces a random, single-use
+   * challenge that round-trips through the ceremony automatically, so
+   * inventing a second correlation id (the way TOTP's challengeToken has
+   * to, since TOTP has none of its own) would just duplicate it.
+   */
+  private passkeyLoginChallenges = new Map<string, { expiresAt: number }>();
 
   constructor(
     private users: UserRepository,
     private sessions: SessionRepository,
+    private webauthnCredentials: WebauthnCredentialRepository,
+    private webauthn: { rpId: string; origin: string },
   ) {}
 
   async login(
@@ -193,6 +229,147 @@ export class AuthService {
     await this.users.update(userId, { totpSecret: null, totpEnabled: false });
   }
 
+  // --- Passkeys (self-service registration) ----------------------------------
+
+  private toPasskeyDto(row: WebauthnCredentialRow): PasskeyDto {
+    return {
+      id: row.id,
+      nickname: row.nickname,
+      createdAt: row.created_at,
+      lastUsedAt: row.last_used_at,
+      deviceType: row.device_type,
+    };
+  }
+
+  async listPasskeys(userId: string): Promise<PasskeyDto[]> {
+    const rows = await this.webauthnCredentials.listForUser(userId);
+    return rows.map((row) => this.toPasskeyDto(row));
+  }
+
+  async beginPasskeyRegistration(userId: string): Promise<PublicKeyCredentialCreationOptionsJSON> {
+    const user = await this.users.findById(userId);
+    if (!user) throw unauthorized();
+    const existing = await this.webauthnCredentials.listForUser(userId);
+    const options = await buildRegistrationOptions({
+      rpID: this.webauthn.rpId,
+      userId: user.id,
+      username: user.username,
+      existingCredentialIds: existing.map((row) => row.credential_id),
+    });
+    this.passkeyRegistrationChallenges.set(userId, {
+      challenge: options.challenge,
+      expiresAt: Date.now() + PASSKEY_CHALLENGE_TTL_MS,
+    });
+    return options;
+  }
+
+  async finishPasskeyRegistration(
+    userId: string,
+    response: RegistrationResponseJSON,
+    nickname: string,
+  ): Promise<PasskeyDto> {
+    const pending = this.passkeyRegistrationChallenges.get(userId);
+    if (!pending || pending.expiresAt < Date.now()) {
+      this.passkeyRegistrationChallenges.delete(userId);
+      throw badRequest('Passkey setup expired - start again');
+    }
+
+    const verification = await verifyRegistration({
+      response,
+      expectedChallenge: pending.challenge,
+      expectedOrigin: this.webauthn.origin,
+      expectedRPID: this.webauthn.rpId,
+    });
+    this.passkeyRegistrationChallenges.delete(userId);
+    if (!verification.verified || !verification.registrationInfo) {
+      throw badRequest('Could not verify the new passkey');
+    }
+
+    const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
+    const row = await this.webauthnCredentials.create({
+      userId,
+      credentialId: credential.id,
+      publicKey: bufferToBase64url(credential.publicKey),
+      counter: credential.counter,
+      transports: credential.transports ? JSON.stringify(credential.transports) : null,
+      deviceType: credentialDeviceType,
+      backedUp: credentialBackedUp,
+      nickname: nickname.trim().slice(0, 64) || 'Passkey',
+    });
+    return this.toPasskeyDto(row);
+  }
+
+  async removePasskey(userId: string, id: string): Promise<void> {
+    const { changes } = await this.webauthnCredentials.deleteForUser(userId, id);
+    if (changes === 0) throw badRequest('Passkey not found');
+  }
+
+  /** Admin lost-all-devices recovery path (parallel to disableTotp). */
+  async removeAllPasskeysForUser(userId: string): Promise<void> {
+    await this.webauthnCredentials.deleteAllForUser(userId);
+  }
+
+  // --- Passkeys (usernameless login) ------------------------------------------
+
+  async beginPasskeyLogin(): Promise<PublicKeyCredentialRequestOptionsJSON> {
+    const options = await buildAuthenticationOptions(this.webauthn.rpId);
+    this.passkeyLoginChallenges.set(options.challenge, {
+      expiresAt: Date.now() + PASSKEY_CHALLENGE_TTL_MS,
+    });
+    return options;
+  }
+
+  async completePasskeyLogin(
+    response: AuthenticationResponseJSON,
+    meta: { ip?: string; userAgent?: string },
+  ): Promise<AuthResult> {
+    const credentialRow = await this.webauthnCredentials.findByCredentialId(response.id);
+    if (!credentialRow) throw unauthorized('Passkey not recognized');
+
+    // Defense-in-depth per SimpleWebAuthn's discoverable-credential guidance -
+    // the primary lookup above is already unambiguous (credential_id is
+    // globally unique), this just cross-checks the assertion agrees.
+    const handleUserId = response.response.userHandle
+      ? handleToUserId(response.response.userHandle)
+      : null;
+    if (handleUserId && handleUserId !== credentialRow.user_id) {
+      throw unauthorized('Passkey not recognized');
+    }
+
+    const user = await this.users.findById(credentialRow.user_id);
+    if (!user || user.disabled === 1) throw unauthorized('Passkey not recognized');
+
+    let challengeAccepted = false;
+    const verification = await verifyAuthentication({
+      response,
+      // One-time-use lookup: only a challenge we actually issued and haven't
+      // already consumed passes, and it's deleted the instant it's checked.
+      expectedChallenge: (challenge) => {
+        const pending = this.passkeyLoginChallenges.get(challenge);
+        if (!pending || pending.expiresAt < Date.now()) return false;
+        this.passkeyLoginChallenges.delete(challenge);
+        challengeAccepted = true;
+        return true;
+      },
+      expectedOrigin: this.webauthn.origin,
+      expectedRPID: this.webauthn.rpId,
+      credential: {
+        id: credentialRow.credential_id,
+        publicKey: base64urlToBuffer(credentialRow.public_key),
+        counter: credentialRow.counter,
+        transports: parseTransports(credentialRow.transports),
+      },
+    });
+    if (!challengeAccepted) throw unauthorized('Login challenge expired - please try again');
+    if (!verification.verified) throw unauthorized('Could not verify passkey');
+
+    await this.webauthnCredentials.updateCounter(
+      credentialRow.id,
+      verification.authenticationInfo.newCounter,
+    );
+    return this.completeLogin(user, meta);
+  }
+
   async validateSession(sessionToken: string): Promise<AuthenticatedSession | null> {
     const session = await this.sessions.findByTokenHash(hashToken(sessionToken));
     if (!session) return null;
@@ -218,6 +395,12 @@ export class AuthService {
     const now = Date.now();
     for (const [token, pending] of this.totpChallenges) {
       if (pending.expiresAt < now) this.totpChallenges.delete(token);
+    }
+    for (const [userId, pending] of this.passkeyRegistrationChallenges) {
+      if (pending.expiresAt < now) this.passkeyRegistrationChallenges.delete(userId);
+    }
+    for (const [challenge, pending] of this.passkeyLoginChallenges) {
+      if (pending.expiresAt < now) this.passkeyLoginChallenges.delete(challenge);
     }
   }
 }

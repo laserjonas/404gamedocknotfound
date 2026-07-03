@@ -1,6 +1,6 @@
 {
   "name": "@gamedock/web",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@gamedock/shared": "workspace:*",
+    "@simplewebauthn/browser": "^13.3.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-router-dom": "^6.28.0"

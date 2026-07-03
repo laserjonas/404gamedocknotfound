@@ -154,6 +154,26 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE server_instances ADD COLUMN linux_uid INTEGER;
     `,
   },
+  {
+    id: 5,
+    name: 'webauthn-credentials',
+    sql: `
+      CREATE TABLE webauthn_credentials (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        credential_id TEXT NOT NULL UNIQUE,
+        public_key TEXT NOT NULL,
+        counter INTEGER NOT NULL DEFAULT 0,
+        transports TEXT,
+        device_type TEXT NOT NULL CHECK (device_type IN ('singleDevice', 'multiDevice')),
+        backed_up INTEGER NOT NULL DEFAULT 0,
+        nickname TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT
+      );
+      CREATE INDEX idx_webauthn_credentials_user ON webauthn_credentials(user_id);
+    `,
+  },
 ];
 
 export async function runMigrations(db: DatabaseClient, logger?: Logger): Promise<void> {
