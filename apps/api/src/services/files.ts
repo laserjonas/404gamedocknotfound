@@ -1,10 +1,11 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import type { Readable } from 'node:stream';
+import * as tar from 'tar';
 import { dirname, join, basename } from 'node:path';
 import type { FileContentDto, FileEntryDto } from '@gamedock/shared';
-import { badRequest, notFound, tooLarge } from '../errors.js';
+import { badRequest, conflict, notFound, tooLarge } from '../errors.js';
 import { resolveSafePath, toRelativePath } from '../utils/safePath.js';
 
 const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024; // editor limit
@@ -137,6 +138,55 @@ export class FileService {
     });
     await pipeline(stream, createWriteStream(file));
     return written;
+  }
+
+  /** Renames or moves a file/directory within the instance (a move is just a rename to a different parent). */
+  async rename(instanceDir: string, fromRelPath: string, toRelPath: string): Promise<void> {
+    if (!fromRelPath || fromRelPath === '.') {
+      throw badRequest('Refusing to rename the instance root directory');
+    }
+    if (!toRelPath) throw badRequest('A destination path is required');
+    const from = resolveSafePath(instanceDir, fromRelPath);
+    const to = resolveSafePath(instanceDir, toRelPath);
+    try {
+      await stat(from);
+    } catch {
+      throw notFound(`Path not found: ${fromRelPath}`);
+    }
+    if (from === to) return;
+    const destExists = await stat(to).then(
+      () => true,
+      () => false,
+    );
+    if (destExists) throw conflict(`Something already exists at "${toRelPath}"`);
+    await mkdir(dirname(to), { recursive: true });
+    await rename(from, to);
+  }
+
+  /** A file streams as itself; a directory streams as a .tar.gz of its contents. */
+  async download(
+    instanceDir: string,
+    relPath: string,
+  ): Promise<{ stream: Readable; fileName: string; contentType: string }> {
+    if (!relPath) throw badRequest('A path is required');
+    const target = resolveSafePath(instanceDir, relPath);
+    let s;
+    try {
+      s = await stat(target);
+    } catch {
+      throw notFound(`Path not found: ${relPath}`);
+    }
+    const name = basename(target);
+    if (s.isDirectory()) {
+      const entries = await readdir(target);
+      const stream = tar.create({ gzip: true, cwd: target }, entries) as unknown as Readable;
+      return { stream, fileName: `${name}.tar.gz`, contentType: 'application/gzip' };
+    }
+    return {
+      stream: createReadStream(target),
+      fileName: name,
+      contentType: 'application/octet-stream',
+    };
   }
 
   async delete(instanceDir: string, relPath: string): Promise<void> {

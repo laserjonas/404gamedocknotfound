@@ -14,6 +14,8 @@ export function FilesTab({ instanceId }: { instanceId: string }) {
   const [deleting, setDeleting] = useState<FileEntryDto | null>(null);
   const [newFolder, setNewFolder] = useState(false);
   const [folderName, setFolderName] = useState('');
+  const [renaming, setRenaming] = useState<FileEntryDto | null>(null);
+  const [renameTarget, setRenameTarget] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { hasRole } = useAuth();
   const canEdit = hasRole('operator');
@@ -98,6 +100,25 @@ export function FilesTab({ instanceId }: { instanceId: string }) {
     }
   };
 
+  const confirmRename = async () => {
+    if (!renaming) return;
+    const to = renameTarget.trim();
+    if (!to || to === renaming.path) {
+      setRenaming(null);
+      return;
+    }
+    try {
+      await api.post(`/api/instances/${instanceId}/files/rename`, { from: renaming.path, to });
+      setRenaming(null);
+      load(path);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Rename failed');
+    }
+  };
+
+  const downloadUrl = (entry: FileEntryDto) =>
+    `/api/instances/${instanceId}/files/download?path=${encodeURIComponent(entry.path)}`;
+
   const crumbs = path ? path.split('/') : [];
 
   return (
@@ -149,7 +170,7 @@ export function FilesTab({ instanceId }: { instanceId: string }) {
             <th>Name</th>
             <th>Size</th>
             <th>Modified</th>
-            {canEdit && <th></th>}
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -165,13 +186,32 @@ export function FilesTab({ instanceId }: { instanceId: string }) {
                 {entry.type === 'file' ? formatBytes(entry.sizeBytes) : '-'}
               </td>
               <td className="muted">{formatDate(entry.modifiedAt)}</td>
-              {canEdit && (
-                <td>
-                  <button className="btn btn-small btn-danger" onClick={() => setDeleting(entry)}>
-                    Delete
-                  </button>
-                </td>
-              )}
+              <td className="file-row-actions">
+                <a
+                  className="btn btn-small"
+                  href={downloadUrl(entry)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Download
+                </a>
+                {canEdit && (
+                  <>
+                    <button
+                      className="btn btn-small"
+                      onClick={() => {
+                        setRenaming(entry);
+                        setRenameTarget(entry.path);
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button className="btn btn-small btn-danger" onClick={() => setDeleting(entry)}>
+                      Delete
+                    </button>
+                  </>
+                )}
+              </td>
             </tr>
           ))}
           {entries.length === 0 && (
@@ -239,6 +279,39 @@ export function FilesTab({ instanceId }: { instanceId: string }) {
               </button>
               <button className="btn btn-primary" onClick={() => void createFolder()}>
                 Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {renaming && (
+        <div className="modal-backdrop" onClick={() => setRenaming(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Rename / move</h3>
+            <div className="form-row">
+              <label htmlFor="rename-target">New path</label>
+              <input
+                id="rename-target"
+                value={renameTarget}
+                onChange={(e) => setRenameTarget(e.target.value)}
+                placeholder="new/path/name"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void confirmRename();
+                }}
+              />
+              <p className="muted">
+                Edit the whole path to move{' '}
+                {renaming.type === 'directory' ? 'the folder' : 'the file'} to a different location.
+              </p>
+            </div>
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setRenaming(null)}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={() => void confirmRename()}>
+                Rename
               </button>
             </div>
           </div>

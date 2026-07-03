@@ -24,6 +24,8 @@ export interface UserDto {
   lastLoginAt: string | null;
   disabled: boolean;
   totpEnabled: boolean;
+  /** Unused 2FA recovery codes remaining. 0 if TOTP is off or none were ever generated. */
+  totpRecoveryCodesRemaining: number;
 }
 
 export interface MeResponse {
@@ -218,6 +220,10 @@ export interface CreateInstanceRequest {
   ports?: { name: string; port: number; protocol: PortProtocol }[];
 }
 
+export interface CloneInstanceRequest {
+  name: string;
+}
+
 export interface UpdateInstanceRequest {
   name?: string;
   autoStart?: boolean;
@@ -374,6 +380,12 @@ export interface AuditLogDto {
   targetId: string | null;
   detail: string | null;
   createdAt: string;
+}
+
+/** One previously-sent console command, most recent first - backs the console's recall history. */
+export interface CommandHistoryEntryDto {
+  command: string;
+  sentAt: string;
 }
 
 /** Server-sent event payloads on /api/events/stream */

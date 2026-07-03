@@ -133,8 +133,15 @@ Any user can enable TOTP (Google Authenticator, Authy, 1Password, etc.) from
 Settings → Two-factor authentication: scan the QR code, confirm one code, and
 every future login needs a fresh code after the password. Verification codes
 are throttled the same way as password attempts. Secrets are stored
-server-side only; there's no recovery-codes flow yet, so a lost device means
-an **admin** has to reset that account's 2FA (Users page → Reset 2FA, or
+server-side only.
+
+Enabling 2FA also issues **10 one-time recovery codes**, shown once at setup
+(and again any time they're regenerated from Settings). Each code signs in
+once in place of a TOTP code, then is permanently invalidated - only a
+sha256 hash of each code is stored, the same treatment as session tokens, not
+the code itself. Regenerating invalidates every unused code from the previous
+batch. If every code is lost or used up, the same **admin** reset applies as
+before a lost device with no codes left (Users page → Reset 2FA, or
 `PATCH /api/users/:id {"resetTotp": true}`) before the owner can sign back in.
 
 ### Passkeys (WebAuthn/FIDO2)

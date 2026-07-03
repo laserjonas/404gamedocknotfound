@@ -82,14 +82,28 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.post('/api/auth/totp/confirm', { preHandler: requireRole('viewer') }, async (request) => {
     const parsed = totpConfirmSchema.safeParse(request.body);
     if (!parsed.success) throw badRequest('A verification code is required');
-    await ctx.auth.confirmTotpSetup(request.auth!.user.id, parsed.data.code);
+    const recoveryCodes = await ctx.auth.confirmTotpSetup(request.auth!.user.id, parsed.data.code);
     await ctx.audit({
       userId: request.auth!.user.id,
       username: request.auth!.user.username,
       action: 'auth.totp_enabled',
     });
-    return { ok: true };
+    return { ok: true, recoveryCodes };
   });
+
+  app.post(
+    '/api/auth/totp/recovery-codes',
+    { preHandler: requireRole('viewer') },
+    async (request) => {
+      const recoveryCodes = await ctx.auth.regenerateRecoveryCodes(request.auth!.user.id);
+      await ctx.audit({
+        userId: request.auth!.user.id,
+        username: request.auth!.user.username,
+        action: 'auth.totp_recovery_codes_regenerated',
+      });
+      return { recoveryCodes };
+    },
+  );
 
   app.post('/api/auth/totp/disable', { preHandler: requireRole('viewer') }, async (request) => {
     const parsed = totpDisableSchema.safeParse(request.body);

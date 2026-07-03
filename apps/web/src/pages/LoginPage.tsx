@@ -66,14 +66,14 @@ export function LoginPage() {
             <span className="brand-icon">▣</span> GameDock Manager
           </div>
           <div className="form-row">
-            <label htmlFor="totp-code">Authenticator code</label>
+            <label htmlFor="totp-code">Authenticator code or recovery code</label>
             <input
               id="totp-code"
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              inputMode="numeric"
               autoComplete="one-time-code"
-              maxLength={6}
+              maxLength={16}
+              placeholder="123456 or ABCDE-FGHJK"
               autoFocus
               required
             />

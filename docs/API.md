@@ -15,21 +15,22 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 
 ## Auth
 
-| Method | Path                               | Role   | Description                                                                                                                         |
-| ------ | ---------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/auth/login`                      | –      | Body `{username, password}` → `{status:'ok', user, csrfToken}` + cookie, or `{status:'totp_required', challengeToken}` if 2FA is on |
-| POST   | `/auth/login/totp`                 | –      | Body `{challengeToken, code}` → completes login the same way as a plain `/auth/login`                                               |
-| POST   | `/auth/logout`                     | –      | Clears the session                                                                                                                  |
-| GET    | `/auth/me`                         | viewer | Current user + CSRF token                                                                                                           |
-| POST   | `/auth/totp/setup`                 | viewer | Generates a new (unconfirmed) secret for the current user → `{secret, otpauthUrl, qrCodeDataUrl}`                                   |
-| POST   | `/auth/totp/confirm`               | viewer | Body `{code}` - verifies the first code and turns 2FA on                                                                            |
-| POST   | `/auth/totp/disable`               | viewer | Body `{password}` - re-verifies the password, then turns 2FA off                                                                    |
-| POST   | `/auth/passkeys/login/begin`       | –      | Usernameless - no body. Returns WebAuthn authentication options (pass to `startAuthentication`)                                     |
-| POST   | `/auth/passkeys/login/complete`    | –      | Body `{response}` (from `startAuthentication`) → `{user, csrfToken}` + cookie, a complete login on its own (no TOTP step)           |
-| POST   | `/auth/passkeys/register/begin`    | viewer | Returns WebAuthn registration options for the current user (pass to `startRegistration`)                                            |
-| POST   | `/auth/passkeys/register/complete` | viewer | Body `{nickname, response}` (from `startRegistration`) → the new passkey                                                            |
-| GET    | `/auth/passkeys`                   | viewer | List the current user's registered passkeys                                                                                         |
-| DELETE | `/auth/passkeys/:id`               | viewer | Remove one of the current user's passkeys                                                                                           |
+| Method | Path                               | Role   | Description                                                                                                                                               |
+| ------ | ---------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/auth/login`                      | –      | Body `{username, password}` → `{status:'ok', user, csrfToken}` + cookie, or `{status:'totp_required', challengeToken}` if 2FA is on                       |
+| POST   | `/auth/login/totp`                 | –      | Body `{challengeToken, code}` → completes login the same way as a plain `/auth/login`. `code` may be a 6-digit TOTP code or a `XXXXX-XXXXX` recovery code |
+| POST   | `/auth/logout`                     | –      | Clears the session                                                                                                                                        |
+| GET    | `/auth/me`                         | viewer | Current user + CSRF token                                                                                                                                 |
+| POST   | `/auth/totp/setup`                 | viewer | Generates a new (unconfirmed) secret for the current user → `{secret, otpauthUrl, qrCodeDataUrl}`                                                         |
+| POST   | `/auth/totp/confirm`               | viewer | Body `{code}` - verifies the first code, turns 2FA on, and returns `{ok, recoveryCodes}` (10 one-time codes, shown once)                                  |
+| POST   | `/auth/totp/disable`               | viewer | Body `{password}` - re-verifies the password, then turns 2FA off (also clears recovery codes)                                                             |
+| POST   | `/auth/totp/recovery-codes`        | viewer | Issues a fresh batch of 10 recovery codes, invalidating any unused ones → `{recoveryCodes}`                                                               |
+| POST   | `/auth/passkeys/login/begin`       | –      | Usernameless - no body. Returns WebAuthn authentication options (pass to `startAuthentication`)                                                           |
+| POST   | `/auth/passkeys/login/complete`    | –      | Body `{response}` (from `startAuthentication`) → `{user, csrfToken}` + cookie, a complete login on its own (no TOTP step)                                 |
+| POST   | `/auth/passkeys/register/begin`    | viewer | Returns WebAuthn registration options for the current user (pass to `startRegistration`)                                                                  |
+| POST   | `/auth/passkeys/register/complete` | viewer | Body `{nickname, response}` (from `startRegistration`) → the new passkey                                                                                  |
+| GET    | `/auth/passkeys`                   | viewer | List the current user's registered passkeys                                                                                                               |
+| DELETE | `/auth/passkeys/:id`               | viewer | Remove one of the current user's passkeys                                                                                                                 |
 
 ## Users (admin)
 
@@ -49,25 +50,27 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 
 ## Instances
 
-| Method | Path             | Role     | Description                                                                                                                                        |
-| ------ | ---------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/instances`     | viewer   | List instances (live status, ports, env)                                                                                                           |
-| POST   | `/instances`     | admin    | Body `{name, templateId, variables?, ports?}`                                                                                                      |
-| GET    | `/instances/:id` | viewer   | Detail incl. CPU/RAM usage while running                                                                                                           |
-| PATCH  | `/instances/:id` | operator | Body `{name?, autoStart?, crashRestart?, backupIntervalHours?, backupRetentionCount?, startExecutable?, startArgs?, envVars?, variables?, ports?}` |
-| DELETE | `/instances/:id` | admin    | Deletes files + backups; returns `{job}`                                                                                                           |
+| Method | Path                   | Role     | Description                                                                                                                                        |
+| ------ | ---------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/instances`           | viewer   | List instances (live status, ports, env)                                                                                                           |
+| POST   | `/instances`           | admin    | Body `{name, templateId, variables?, ports?}`                                                                                                      |
+| GET    | `/instances/:id`       | viewer   | Detail incl. CPU/RAM usage while running                                                                                                           |
+| POST   | `/instances/:id/clone` | admin    | Body `{name}` - copies template snapshot, variables, env vars, ports and startup/backup settings into a new (not-yet-installed) instance           |
+| PATCH  | `/instances/:id`       | operator | Body `{name?, autoStart?, crashRestart?, backupIntervalHours?, backupRetentionCount?, startExecutable?, startArgs?, envVars?, variables?, ports?}` |
+| DELETE | `/instances/:id`       | admin    | Deletes files + backups; returns `{job}`                                                                                                           |
 
 ### Actions
 
-| Method | Path                     | Role     | Description                                                               |
-| ------ | ------------------------ | -------- | ------------------------------------------------------------------------- |
-| POST   | `/instances/:id/install` | operator | Install server files → `{job}`                                            |
-| POST   | `/instances/:id/update`  | operator | Update server files → `{job}`                                             |
-| POST   | `/instances/:id/start`   | operator | Start the server process                                                  |
-| POST   | `/instances/:id/stop`    | operator | Graceful stop (console command or signal, SIGKILL after template timeout) |
-| POST   | `/instances/:id/restart` | operator | Stop (graceful) then start                                                |
-| POST   | `/instances/:id/kill`    | operator | Immediate SIGKILL                                                         |
-| POST   | `/instances/:id/command` | operator | Body `{command}` — write to server stdin (if supported)                   |
+| Method | Path                              | Role     | Description                                                                        |
+| ------ | --------------------------------- | -------- | ---------------------------------------------------------------------------------- |
+| POST   | `/instances/:id/install`          | operator | Install server files → `{job}`                                                     |
+| POST   | `/instances/:id/update`           | operator | Update server files → `{job}`                                                      |
+| POST   | `/instances/:id/start`            | operator | Start the server process                                                           |
+| POST   | `/instances/:id/stop`             | operator | Graceful stop (console command or signal, SIGKILL after template timeout)          |
+| POST   | `/instances/:id/restart`          | operator | Stop (graceful) then start                                                         |
+| POST   | `/instances/:id/kill`             | operator | Immediate SIGKILL                                                                  |
+| POST   | `/instances/:id/command`          | operator | Body `{command}` — write to server stdin (if supported)                            |
+| GET    | `/instances/:id/commands/history` | viewer   | Recent commands sent, most recent first — backs the console's up/down-arrow recall |
 
 ### Logs
 
@@ -78,14 +81,16 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 
 ### Files (sandboxed to the instance directory)
 
-| Method | Path                                 | Role     | Description                          |
-| ------ | ------------------------------------ | -------- | ------------------------------------ |
-| GET    | `/instances/:id/files?path=`         | viewer   | List directory                       |
-| GET    | `/instances/:id/files/content?path=` | viewer   | Read text file (≤ 2 MiB, non-binary) |
-| PUT    | `/instances/:id/files/content`       | operator | Body `{path, content}`               |
-| POST   | `/instances/:id/files/mkdir`         | operator | Body `{path}`                        |
-| POST   | `/instances/:id/files/upload`        | operator | multipart: `path` (dir) + `file`     |
-| DELETE | `/instances/:id/files?path=`         | operator | Delete file/directory                |
+| Method | Path                                  | Role     | Description                                                                        |
+| ------ | ------------------------------------- | -------- | ---------------------------------------------------------------------------------- |
+| GET    | `/instances/:id/files?path=`          | viewer   | List directory                                                                     |
+| GET    | `/instances/:id/files/content?path=`  | viewer   | Read text file (≤ 2 MiB, non-binary)                                               |
+| GET    | `/instances/:id/files/download?path=` | viewer   | Download a file as itself, or a directory as a `.tar.gz`                           |
+| PUT    | `/instances/:id/files/content`        | operator | Body `{path, content}`                                                             |
+| POST   | `/instances/:id/files/mkdir`          | operator | Body `{path}`                                                                      |
+| POST   | `/instances/:id/files/rename`         | operator | Body `{from, to}` — rename or move (a move is just a rename to a different parent) |
+| POST   | `/instances/:id/files/upload`         | operator | multipart: `path` (dir) + `file`                                                   |
+| DELETE | `/instances/:id/files?path=`          | operator | Delete file/directory                                                              |
 
 ### Backups
 

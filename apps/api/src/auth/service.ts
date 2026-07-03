@@ -9,7 +9,13 @@ import type {
   WebauthnCredentialRow,
 } from '../db/repositories/webauthnCredentials.js';
 import { dummyVerify, verifyPassword } from './passwords.js';
-import { buildTotpEnrollment, generateTotpSecret, verifyTotpCode } from './totp.js';
+import {
+  buildTotpEnrollment,
+  generateRecoveryCodes,
+  generateTotpSecret,
+  looksLikeRecoveryCode,
+  verifyTotpCode,
+} from './totp.js';
 import {
   base64urlToBuffer,
   buildAuthenticationOptions,
@@ -168,10 +174,15 @@ export class AuthService {
       throw unauthorized('Login challenge is no longer valid - please sign in again');
     }
 
-    const ok = await verifyTotpCode(user.totp_secret, code);
+    const usingRecoveryCode = looksLikeRecoveryCode(code);
+    const ok = usingRecoveryCode
+      ? await this.consumeRecoveryCode(user, code)
+      : await verifyTotpCode(user.totp_secret, code);
     if (!ok) {
       this.throttle.recordFailure(throttleKey);
-      throw unauthorized('Invalid verification code');
+      throw unauthorized(
+        usingRecoveryCode ? 'Invalid or already-used recovery code' : 'Invalid verification code',
+      );
     }
 
     this.throttle.reset(throttleKey);
@@ -213,8 +224,8 @@ export class AuthService {
     return { secret, otpauthUrl, qrCodeDataUrl };
   }
 
-  /** Verifies the first code from the authenticator app and turns 2FA on. */
-  async confirmTotpSetup(userId: string, code: string): Promise<void> {
+  /** Verifies the first code from the authenticator app, turns 2FA on, and issues recovery codes. */
+  async confirmTotpSetup(userId: string, code: string): Promise<string[]> {
     const user = await this.users.findById(userId);
     if (!user?.totp_secret) {
       throw badRequest('No pending 2FA setup for this account - start setup again');
@@ -222,11 +233,42 @@ export class AuthService {
     const ok = await verifyTotpCode(user.totp_secret, code);
     if (!ok) throw badRequest('Invalid verification code');
     await this.users.update(userId, { totpEnabled: true });
+    return this.regenerateRecoveryCodes(userId);
   }
 
   /** Turns 2FA off (self-service after password re-entry, or an admin resetting another account). */
   async disableTotp(userId: string): Promise<void> {
-    await this.users.update(userId, { totpSecret: null, totpEnabled: false });
+    await this.users.update(userId, {
+      totpSecret: null,
+      totpEnabled: false,
+      totpRecoveryCodes: null,
+    });
+  }
+
+  /** Issues a fresh batch of recovery codes, invalidating any unused ones. Shown once, in plaintext. */
+  async regenerateRecoveryCodes(userId: string): Promise<string[]> {
+    const user = await this.users.findById(userId);
+    if (!user || user.totp_enabled !== 1) {
+      throw badRequest('Enable 2FA before generating recovery codes');
+    }
+    const codes = generateRecoveryCodes();
+    await this.users.update(userId, { totpRecoveryCodes: codes.map(hashToken) });
+    return codes;
+  }
+
+  /** One-time-use: consumes and invalidates a recovery code if it matches. */
+  private async consumeRecoveryCode(user: UserRow, code: string): Promise<boolean> {
+    if (!user.totp_recovery_codes) return false;
+    const hashes = JSON.parse(user.totp_recovery_codes) as string[];
+    const hash = hashToken(code.trim().toUpperCase());
+    const index = hashes.indexOf(hash);
+    if (index === -1) return false;
+    hashes.splice(index, 1);
+    await this.users.update(user.id, { totpRecoveryCodes: hashes });
+    // Keep the in-memory row in sync - completeLogin() below builds its DTO
+    // from this same object, and would otherwise report the pre-consumption count.
+    user.totp_recovery_codes = JSON.stringify(hashes);
+    return true;
   }
 
   // --- Passkeys (self-service registration) ----------------------------------

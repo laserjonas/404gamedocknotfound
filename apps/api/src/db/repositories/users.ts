@@ -14,6 +14,8 @@ export interface UserRow {
   last_login_at: string | null;
   totp_secret: string | null;
   totp_enabled: number;
+  /** JSON array of sha256 hashes (hex), one per unused recovery code. Null until 2FA is enabled. */
+  totp_recovery_codes: string | null;
 }
 
 export function toUserDto(row: UserRow): UserDto {
@@ -26,6 +28,9 @@ export function toUserDto(row: UserRow): UserDto {
     updatedAt: row.updated_at,
     lastLoginAt: row.last_login_at,
     totpEnabled: row.totp_enabled === 1,
+    totpRecoveryCodesRemaining: row.totp_recovery_codes
+      ? (JSON.parse(row.totp_recovery_codes) as string[]).length
+      : 0,
   };
 }
 
@@ -76,6 +81,7 @@ export class UserRepository {
       disabled: boolean;
       totpSecret: string | null;
       totpEnabled: boolean;
+      totpRecoveryCodes: string[] | null;
     }>,
   ): Promise<void> {
     const sets: string[] = [];
@@ -103,6 +109,10 @@ export class UserRepository {
     if (patch.totpEnabled !== undefined) {
       sets.push('totp_enabled = ?');
       params.push(patch.totpEnabled ? 1 : 0);
+    }
+    if (patch.totpRecoveryCodes !== undefined) {
+      sets.push('totp_recovery_codes = ?');
+      params.push(patch.totpRecoveryCodes ? JSON.stringify(patch.totpRecoveryCodes) : null);
     }
     if (sets.length === 0) return;
     sets.push('updated_at = ?');

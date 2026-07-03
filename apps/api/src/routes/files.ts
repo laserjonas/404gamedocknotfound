@@ -18,6 +18,11 @@ const mkdirSchema = z.object({
   path: z.string().min(1).max(1024),
 });
 
+const renameSchema = z.object({
+  from: z.string().min(1).max(1024),
+  to: z.string().min(1).max(1024),
+});
+
 export function registerFileRoutes(app: FastifyInstance, ctx: AppContext): void {
   const instanceDirOf = async (id: string): Promise<string> => {
     await ctx.instances.getRow(id); // 404 when unknown
@@ -108,6 +113,47 @@ export function registerFileRoutes(app: FastifyInstance, ctx: AppContext): void 
         detail: `${relPath} (${written} bytes)`,
       });
       return { ok: true, path: relPath, sizeBytes: written };
+    },
+  );
+
+  app.get(
+    '/api/instances/:id/files/download',
+    { preHandler: requireRole('viewer') },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const query = pathQuerySchema.safeParse(request.query);
+      if (!query.success || !query.data.path) throw badRequest('A path is required');
+      const rel = sanitizeRelativePath(query.data.path);
+      const { stream, fileName, contentType } = await ctx.files.download(
+        await instanceDirOf(id),
+        rel,
+      );
+      reply.header('Content-Type', contentType);
+      reply.header('Content-Disposition', `attachment; filename="${fileName.replace(/"/g, '')}"`);
+      return reply.send(stream);
+    },
+  );
+
+  app.post(
+    '/api/instances/:id/files/rename',
+    { preHandler: requireRole('operator') },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const parsed = renameSchema.safeParse(request.body);
+      if (!parsed.success) throw badRequest('"from" and "to" paths are required');
+      const instanceDir = await instanceDirOf(id);
+      const fromRel = sanitizeRelativePath(parsed.data.from);
+      const toRel = sanitizeRelativePath(parsed.data.to);
+      await ctx.files.rename(instanceDir, fromRel, toRel);
+      await ctx.audit({
+        userId: request.auth!.user.id,
+        username: request.auth!.user.username,
+        action: 'file.rename',
+        targetType: 'instance',
+        targetId: id,
+        detail: `${fromRel} -> ${toRel}`,
+      });
+      return { ok: true };
     },
   );
 

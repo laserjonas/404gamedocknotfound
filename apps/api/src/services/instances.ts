@@ -188,22 +188,69 @@ export class InstanceService {
         : template.ports.map((p) => ({ name: p.name, port: p.port, protocol: p.protocol }));
     await this.repo.replacePorts(row.id, ports);
 
-    await mkdir(this.instanceDir(row.id), { recursive: true });
+    await this.provisionInstanceDirectory(row.id);
 
-    if (this.linuxUsers.enabled) {
-      try {
-        const { username, uid } = await this.linuxUsers.provision(row.id);
-        await this.repo.update(row.id, { linuxUsername: username, linuxUid: uid });
-      } catch (err) {
-        // No silent fallback to the shared-user model - that would be a
-        // security-relevant behavior change nobody would notice.
-        await rm(this.instanceDir(row.id), { recursive: true, force: true }).catch(() => {});
-        await this.repo.delete(row.id);
-        throw new Error(
-          `Failed to provision an isolated Linux user for this instance: ${(err as Error).message}`,
-        );
-      }
+    return this.getRow(row.id);
+  }
+
+  /** Creates the instance directory and, if isolation is on, a dedicated Linux user. Shared by create() and clone(). */
+  private async provisionInstanceDirectory(rowId: string): Promise<void> {
+    await mkdir(this.instanceDir(rowId), { recursive: true });
+
+    if (!this.linuxUsers.enabled) return;
+    try {
+      const { username, uid } = await this.linuxUsers.provision(rowId);
+      await this.repo.update(rowId, { linuxUsername: username, linuxUid: uid });
+    } catch (err) {
+      // No silent fallback to the shared-user model - that would be a
+      // security-relevant behavior change nobody would notice.
+      await rm(this.instanceDir(rowId), { recursive: true, force: true }).catch(() => {});
+      await this.repo.delete(rowId);
+      throw new Error(
+        `Failed to provision an isolated Linux user for this instance: ${(err as Error).message}`,
+      );
     }
+  }
+
+  /** Duplicates an existing instance's config (template snapshot, variables, env vars, ports,
+   * start/backup settings) into a new instance. The clone still needs its own install. */
+  async clone(id: string, newName: string): Promise<InstanceRow> {
+    const source = await this.getRow(id);
+    if (!INSTANCE_NAME_RE.test(newName)) {
+      throw badRequest('Instance name must be 2-64 characters (letters, digits, spaces, ._- only)');
+    }
+    if (await this.repo.findByName(newName)) {
+      throw conflict(`An instance named "${newName}" already exists`);
+    }
+
+    const [variables, envVars, ports] = await Promise.all([
+      this.repo.getVariables(source.id),
+      this.repo.getEnvVars(source.id),
+      this.repo.listPorts(source.id),
+    ]);
+
+    const row = await this.repo.create({
+      name: newName,
+      templateId: source.template_id,
+      templateDefinition: source.template_definition,
+    });
+
+    await this.repo.replaceVariables(row.id, variables);
+    await this.repo.replaceEnvVars(row.id, envVars);
+    await this.repo.replacePorts(
+      row.id,
+      ports.map((p) => ({ name: p.name, port: p.port, protocol: p.protocol })),
+    );
+    await this.repo.update(row.id, {
+      autoStart: source.auto_start === 1,
+      crashRestart: source.crash_restart === 1,
+      backupIntervalHours: source.backup_interval_hours,
+      backupRetentionCount: source.backup_retention_count,
+      startExecutable: source.start_executable,
+      startArgs: source.start_args,
+    });
+
+    await this.provisionInstanceDirectory(row.id);
 
     return this.getRow(row.id);
   }

@@ -62,6 +62,16 @@ export class AuditRepository {
     ]);
   }
 
+  /** Recent console commands sent to one instance, most recent first - backs the console's recall history. */
+  async listCommandHistory(instanceId: string, limit = 50): Promise<AuditRow[]> {
+    return this.db.all<AuditRow>(
+      `SELECT * FROM audit_logs
+       WHERE target_type = 'instance' AND target_id = ? AND action = 'instance.command'
+       ORDER BY created_at DESC LIMIT ?`,
+      [instanceId, limit],
+    );
+  }
+
   /** Deletes entries older than the cutoff. Returns the number of rows removed. */
   async pruneOlderThan(cutoffIso: string): Promise<number> {
     return (await this.db.run('DELETE FROM audit_logs WHERE created_at < ?', [cutoffIso])).changes;

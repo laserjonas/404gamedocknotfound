@@ -174,6 +174,20 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_webauthn_credentials_user ON webauthn_credentials(user_id);
     `,
   },
+  {
+    id: 6,
+    name: 'totp-recovery-codes',
+    sql: `
+      ALTER TABLE users ADD COLUMN totp_recovery_codes TEXT;
+    `,
+  },
+  {
+    id: 7,
+    name: 'audit-target-index',
+    sql: `
+      CREATE INDEX idx_audit_target ON audit_logs(target_type, target_id, action);
+    `,
+  },
 ];
 
 export async function runMigrations(db: DatabaseClient, logger?: Logger): Promise<void> {

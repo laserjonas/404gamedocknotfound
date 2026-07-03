@@ -22,6 +22,10 @@ function fakeUsers(initial: UserRow[] = []): UserRepository {
       if (!row) return;
       if ('totpSecret' in patch) row.totp_secret = patch.totpSecret as string | null;
       if ('totpEnabled' in patch) row.totp_enabled = patch.totpEnabled ? 1 : 0;
+      if ('totpRecoveryCodes' in patch) {
+        const codes = patch.totpRecoveryCodes as string[] | null;
+        row.totp_recovery_codes = codes ? JSON.stringify(codes) : null;
+      }
       if ('disabled' in patch) row.disabled = patch.disabled ? 1 : 0;
     },
     recordLogin: async () => {},
@@ -136,6 +140,7 @@ async function makeUser(overrides: Partial<UserRow> = {}): Promise<UserRow> {
     last_login_at: null,
     totp_secret: null,
     totp_enabled: 0,
+    totp_recovery_codes: null,
     ...overrides,
   };
 }
@@ -255,9 +260,13 @@ describe('AuthService 2FA setup', () => {
     expect(after?.totp_enabled).toBe(0);
   });
 
-  it('disables 2FA and clears the stored secret', async () => {
+  it('disables 2FA and clears the stored secret and recovery codes', async () => {
     const secret = generateTotpSecret();
-    const user = await makeUser({ totp_secret: secret, totp_enabled: 1 });
+    const user = await makeUser({
+      totp_secret: secret,
+      totp_enabled: 1,
+      totp_recovery_codes: JSON.stringify(['deadbeef']),
+    });
     const users = fakeUsers([user]);
     const service = makeService(users, fakeSessions());
 
@@ -266,6 +275,74 @@ describe('AuthService 2FA setup', () => {
     const after = await users.findById(user.id);
     expect(after?.totp_enabled).toBe(0);
     expect(after?.totp_secret).toBeNull();
+    expect(after?.totp_recovery_codes).toBeNull();
+  });
+});
+
+describe('AuthService recovery codes', () => {
+  it('issues 10 uniquely-formatted codes on setup confirmation', async () => {
+    const user = await makeUser();
+    const users = fakeUsers([user]);
+    const service = makeService(users, fakeSessions());
+
+    const setup = await service.beginTotpSetup(user.id);
+    const code = await generate({ secret: setup.secret });
+    const recoveryCodes = await service.confirmTotpSetup(user.id, code);
+
+    expect(recoveryCodes).toHaveLength(10);
+    expect(new Set(recoveryCodes).size).toBe(10);
+    for (const rc of recoveryCodes) {
+      expect(rc).toMatch(/^[A-Z0-9]{5}-[A-Z0-9]{5}$/);
+    }
+  });
+
+  it('rejects regenerating codes when 2FA is not enabled', async () => {
+    const user = await makeUser();
+    const service = makeService(fakeUsers([user]), fakeSessions());
+
+    await expect(service.regenerateRecoveryCodes(user.id)).rejects.toThrow(/Enable 2FA/);
+  });
+
+  it('logs in with a recovery code, then rejects that same code on reuse', async () => {
+    const user = await makeUser();
+    const users = fakeUsers([user]);
+    const service = makeService(users, fakeSessions());
+
+    const setup = await service.beginTotpSetup(user.id);
+    const setupCode = await generate({ secret: setup.secret });
+    const recoveryCodes = await service.confirmTotpSetup(user.id, setupCode);
+    const [firstCode] = recoveryCodes;
+
+    const outcome1 = await service.login('alice', 'correct-horse-battery', {});
+    if (outcome1.status !== 'totp_required') throw new Error('expected a totp_required challenge');
+    const result = await service.completeTotpLogin(outcome1.challengeToken, firstCode);
+    expect(result.user.username).toBe('alice');
+    // Regression: the returned user DTO must reflect the code just consumed,
+    // not the pre-consumption count from before this login.
+    expect(result.user.totpRecoveryCodesRemaining).toBe(recoveryCodes.length - 1);
+
+    const outcome2 = await service.login('alice', 'correct-horse-battery', {});
+    if (outcome2.status !== 'totp_required') throw new Error('expected a totp_required challenge');
+    await expect(service.completeTotpLogin(outcome2.challengeToken, firstCode)).rejects.toThrow(
+      /Invalid or already-used recovery code/,
+    );
+  });
+
+  it('regenerating codes invalidates the previous batch', async () => {
+    const user = await makeUser();
+    const users = fakeUsers([user]);
+    const service = makeService(users, fakeSessions());
+
+    const setup = await service.beginTotpSetup(user.id);
+    const setupCode = await generate({ secret: setup.secret });
+    const firstBatch = await service.confirmTotpSetup(user.id, setupCode);
+    await service.regenerateRecoveryCodes(user.id);
+
+    const outcome = await service.login('alice', 'correct-horse-battery', {});
+    if (outcome.status !== 'totp_required') throw new Error('expected a totp_required challenge');
+    await expect(service.completeTotpLogin(outcome.challengeToken, firstBatch[0])).rejects.toThrow(
+      /Invalid or already-used recovery code/,
+    );
   });
 });
 

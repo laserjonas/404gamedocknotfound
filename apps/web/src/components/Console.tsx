@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ConsoleLine } from '@gamedock/shared';
+import type { CommandHistoryEntryDto, ConsoleLine } from '@gamedock/shared';
 import { api } from '../api';
 import { useSse } from '../hooks';
 import { useAuth } from '../auth';
@@ -19,6 +19,21 @@ export function Console({ instanceId, running, supportsInput }: ConsoleProps) {
   const [autoScroll, setAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const { hasRole } = useAuth();
+
+  // Command recall (up/down arrow, like a shell history): -1 means "not
+  // currently browsing history" - the user is editing a fresh command.
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const draftRef = useRef('');
+
+  useEffect(() => {
+    setHistory([]);
+    setHistoryIndex(-1);
+    api
+      .get<CommandHistoryEntryDto[]>(`/api/instances/${instanceId}/commands/history`)
+      .then((entries) => setHistory(entries.map((e) => e.command)))
+      .catch(() => {});
+  }, [instanceId]);
 
   // Load history from the log file for stopped servers; while running the
   // SSE stream replays the live buffer itself.
@@ -62,9 +77,31 @@ export function Console({ instanceId, running, supportsInput }: ConsoleProps) {
     setError(null);
     try {
       await api.post(`/api/instances/${instanceId}/command`, { command: cmd });
+      setHistory((prev) => [cmd, ...prev]);
+      setHistoryIndex(-1);
+      draftRef.current = '';
       setCommand('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send command');
+    }
+  };
+
+  const recallHistory = (direction: 'older' | 'newer') => {
+    if (history.length === 0) return;
+    if (direction === 'older') {
+      if (historyIndex === -1) draftRef.current = command;
+      const next = Math.min(historyIndex + 1, history.length - 1);
+      setHistoryIndex(next);
+      setCommand(history[next] ?? '');
+    } else {
+      if (historyIndex <= 0) {
+        setHistoryIndex(-1);
+        setCommand(draftRef.current);
+        return;
+      }
+      const next = historyIndex - 1;
+      setHistoryIndex(next);
+      setCommand(history[next] ?? '');
     }
   };
 
@@ -95,11 +132,25 @@ export function Console({ instanceId, running, supportsInput }: ConsoleProps) {
         <div className="console-input">
           <input
             value={command}
-            onChange={(e) => setCommand(e.target.value)}
+            onChange={(e) => {
+              setCommand(e.target.value);
+              setHistoryIndex(-1);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void send();
+              else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                recallHistory('older');
+              } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                recallHistory('newer');
+              }
             }}
-            placeholder={running ? 'Type a server command and press Enter' : 'Server is stopped'}
+            placeholder={
+              running
+                ? 'Type a server command and press Enter (↑/↓ for history)'
+                : 'Server is stopped'
+            }
             disabled={!running}
           />
           <button className="btn btn-primary" onClick={() => void send()} disabled={!running}>

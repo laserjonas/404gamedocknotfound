@@ -726,8 +726,24 @@ select {
   display: flex;
   gap: 8px;
 }
+.file-row-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
 .file-table .link-btn {
   font-family: inherit;
+}
+.recovery-codes {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.8;
+  margin: 0 0 12px;
 }
 .file-editor {
   width: 100%;

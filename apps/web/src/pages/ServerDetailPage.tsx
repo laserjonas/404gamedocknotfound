@@ -27,6 +27,10 @@ export function ServerDetailPage() {
   const [confirmKill, setConfirmKill] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [watchingJob, setWatchingJob] = useState<string | null>(null);
+  const [cloning, setCloning] = useState(false);
+  const [cloneName, setCloneName] = useState('');
+  const [cloneBusy, setCloneBusy] = useState(false);
+  const [cloneError, setCloneError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -104,6 +108,21 @@ export function ServerDetailPage() {
     }
   };
 
+  const confirmClone = async () => {
+    const name = cloneName.trim();
+    if (!name) return;
+    setCloneError(null);
+    setCloneBusy(true);
+    try {
+      const clone = await api.post<InstanceDto>(`/api/instances/${instance.id}/clone`, { name });
+      navigate(`/servers/${clone.id}`);
+    } catch (err) {
+      setCloneError(err instanceof Error ? err.message : 'Clone failed');
+    } finally {
+      setCloneBusy(false);
+    }
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -171,6 +190,18 @@ export function ServerDetailPage() {
                 onClick={() => void startJob(instance.installed ? 'update' : 'install')}
               >
                 {instance.installed ? 'Update files' : 'Install files'}
+              </button>
+            )}
+            {hasRole('admin') && (
+              <button
+                className="btn"
+                onClick={() => {
+                  setCloneName(`${instance.name} copy`);
+                  setCloneError(null);
+                  setCloning(true);
+                }}
+              >
+                Clone
               </button>
             )}
             {hasRole('admin') && !isActive && (
@@ -252,6 +283,44 @@ export function ServerDetailPage() {
           }}
           onCancel={() => setConfirmDelete(false)}
         />
+      )}
+
+      {cloning && (
+        <div className="modal-backdrop" onClick={() => !cloneBusy && setCloning(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Clone {instance.name}</h3>
+            <div className="form-row">
+              <label htmlFor="clone-name">New server name</label>
+              <input
+                id="clone-name"
+                value={cloneName}
+                onChange={(e) => setCloneName(e.target.value)}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void confirmClone();
+                }}
+              />
+              <p className="muted">
+                Copies the template, game settings, environment variables, ports and startup/backup
+                settings into a new server. The clone still needs its own install - no files are
+                copied.
+              </p>
+            </div>
+            {cloneError && <div className="error-text">{cloneError}</div>}
+            <div className="modal-actions">
+              <button className="btn" onClick={() => setCloning(false)} disabled={cloneBusy}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => void confirmClone()}
+                disabled={cloneBusy}
+              >
+                {cloneBusy ? 'Cloning...' : 'Clone'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {watchingJob && <JobLogModal jobId={watchingJob} onClose={() => setWatchingJob(null)} />}

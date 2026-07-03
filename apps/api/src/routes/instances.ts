@@ -17,6 +17,10 @@ const createSchema = z.object({
   ports: z.array(portSchema).max(32).optional(),
 });
 
+const cloneSchema = z.object({
+  name: z.string().min(2).max(64),
+});
+
 const updateSchema = z.object({
   name: z.string().min(2).max(64).optional(),
   autoStart: z.boolean().optional(),
@@ -73,6 +77,20 @@ export function registerInstanceRoutes(app: FastifyInstance, ctx: AppContext): v
     reply.code(201);
     return ctx.instances.toDto(row);
   });
+
+  app.post(
+    '/api/instances/:id/clone',
+    { preHandler: requireRole('admin') },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const parsed = cloneSchema.safeParse(request.body);
+      if (!parsed.success) throw badRequest('A name for the clone is required');
+      const row = await ctx.instances.clone(id, parsed.data.name);
+      await auditAction(request, 'instance.clone', row.id, `cloned from ${id} as ${row.name}`);
+      reply.code(201);
+      return ctx.instances.toDto(row);
+    },
+  );
 
   app.patch('/api/instances/:id', { preHandler: requireRole('operator') }, async (request) => {
     const { id } = request.params as { id: string };
@@ -159,8 +177,24 @@ export function registerInstanceRoutes(app: FastifyInstance, ctx: AppContext): v
       const parsed = commandSchema.safeParse(request.body);
       if (!parsed.success) throw badRequest('A command string is required');
       await ctx.instances.sendCommand(id, parsed.data.command);
-      await auditAction(request, 'instance.command', id, parsed.data.command.slice(0, 200));
+      // Not truncated to a display-friendly length here (unlike other audit
+      // details) - this is also the source of the console's recall history,
+      // so a resent command must come back byte-for-byte.
+      await auditAction(request, 'instance.command', id, parsed.data.command);
       return { ok: true };
+    },
+  );
+
+  app.get(
+    '/api/instances/:id/commands/history',
+    { preHandler: requireRole('viewer') },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      await ctx.instances.getRow(id);
+      const rows = await ctx.repos.audit.listCommandHistory(id);
+      return rows
+        .filter((row) => row.detail !== null)
+        .map((row) => ({ command: row.detail!, sentAt: row.created_at }));
     },
   );
 

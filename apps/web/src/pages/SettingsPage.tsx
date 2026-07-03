@@ -33,6 +33,8 @@ export function SettingsPage() {
   const [totpBusy, setTotpBusy] = useState(false);
   const [showDisableForm, setShowDisableForm] = useState(false);
   const [disablePassword, setDisablePassword] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [regenBusy, setRegenBusy] = useState(false);
 
   const [passkeys, setPasskeys] = useState<PasskeyDto[]>([]);
   const [passkeyError, setPasskeyError] = useState<string | null>(null);
@@ -83,9 +85,13 @@ export function SettingsPage() {
     setTotpError(null);
     setTotpBusy(true);
     try {
-      await api.post('/api/auth/totp/confirm', { code: totpCode });
+      const result = await api.post<{ ok: true; recoveryCodes: string[] }>(
+        '/api/auth/totp/confirm',
+        { code: totpCode },
+      );
       setTotpSetup(null);
       setTotpCode('');
+      setRecoveryCodes(result.recoveryCodes);
       await refreshUser();
     } catch (err) {
       setTotpError(err instanceof Error ? err.message : 'Invalid code');
@@ -101,11 +107,26 @@ export function SettingsPage() {
       await api.post('/api/auth/totp/disable', { password: disablePassword });
       setShowDisableForm(false);
       setDisablePassword('');
+      setRecoveryCodes(null);
       await refreshUser();
     } catch (err) {
       setTotpError(err instanceof Error ? err.message : 'Failed to disable 2FA');
     } finally {
       setTotpBusy(false);
+    }
+  };
+
+  const regenerateRecoveryCodes = async () => {
+    setTotpError(null);
+    setRegenBusy(true);
+    try {
+      const result = await api.post<{ recoveryCodes: string[] }>('/api/auth/totp/recovery-codes');
+      setRecoveryCodes(result.recoveryCodes);
+      await refreshUser();
+    } catch (err) {
+      setTotpError(err instanceof Error ? err.message : 'Failed to regenerate recovery codes');
+    } finally {
+      setRegenBusy(false);
     }
   };
 
@@ -174,9 +195,33 @@ export function SettingsPage() {
 
       <div className="card form-card">
         <h2>Two-factor authentication</h2>
-        {user?.totpEnabled ? (
+        {recoveryCodes ? (
+          <>
+            <p className="muted">
+              Save these recovery codes somewhere safe - each one signs you in <strong>once</strong>{' '}
+              if you lose access to your authenticator app. They won't be shown again.
+            </p>
+            <pre className="recovery-codes">{recoveryCodes.join('\n')}</pre>
+            <button className="btn btn-primary btn-small" onClick={() => setRecoveryCodes(null)}>
+              I've saved these
+            </button>
+          </>
+        ) : user?.totpEnabled ? (
           <>
             <p className="muted">Enabled for your account - a code is required at every sign-in.</p>
+            <p className="muted">
+              {user.totpRecoveryCodesRemaining} recovery code
+              {user.totpRecoveryCodesRemaining === 1 ? '' : 's'} remaining.{' '}
+              <button
+                type="button"
+                className="link-button"
+                disabled={regenBusy}
+                onClick={() => void regenerateRecoveryCodes()}
+              >
+                Regenerate
+              </button>{' '}
+              (invalidates any unused codes from before)
+            </p>
             {!showDisableForm ? (
               <button className="btn btn-small" onClick={() => setShowDisableForm(true)}>
                 Disable 2FA
