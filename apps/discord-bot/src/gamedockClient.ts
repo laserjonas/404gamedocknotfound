@@ -56,12 +56,20 @@ export class GameDockClient {
     return this.request('GET', '/api/templates');
   }
 
-  createInstance(params: { name: string; templateId: string }): Promise<InstanceDto> {
+  createInstance(params: {
+    name: string;
+    templateId: string;
+    variables?: Record<string, string>;
+  }): Promise<InstanceDto> {
     return this.request('POST', '/api/instances', params);
   }
 
   enqueueInstall(instanceId: string): Promise<{ job: JobDto }> {
     return this.request('POST', `/api/instances/${instanceId}/install`);
+  }
+
+  startInstance(instanceId: string): Promise<{ ok: true }> {
+    return this.request('POST', `/api/instances/${instanceId}/start`);
   }
 
   getJob(jobId: string): Promise<JobDto> {

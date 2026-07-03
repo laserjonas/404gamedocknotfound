@@ -38,6 +38,12 @@ export async function startBot(
         }
         return;
       }
+      if (interaction.isModalSubmit()) {
+        if (interaction.customId.startsWith(requestServerCommand.MODAL_CUSTOM_ID_PREFIX)) {
+          await requestServerCommand.handleModalSubmit(interaction, deps);
+        }
+        return;
+      }
       if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'request-server') {
           await requestServerCommand.execute(interaction, deps);

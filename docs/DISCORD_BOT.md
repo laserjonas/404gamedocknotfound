@@ -6,19 +6,25 @@ limited by their Discord role - how many servers, and which games, is
 configured per role. It's a separate process from the main GameDock panel,
 talking to it purely through the REST API with one admin-level API token.
 
-**Scope, by design**: this is request-only. `/request-server` creates and
-installs a server; managing it afterwards (start/stop/delete/settings)
-still happens in the GameDock web UI by an admin or operator. There's no
-`/my-servers`, `/stop`, or self-service `/delete`.
+**Scope, by design**: this is request-only. `/request-server` creates,
+installs, and starts a server; managing it afterwards (stop/restart/
+delete/settings) still happens in the GameDock web UI by an admin or
+operator. There's no `/my-servers`, `/stop`, or self-service `/delete`.
 
 ## How it works
 
 - A member runs `/request-server`, picks a game from an autocomplete list
   (filtered to what their Discord role allows).
-- The bot checks their role against configured quotas, checks how many
-  active requests they already have, and - if within limits - creates the
-  instance in GameDock and kicks off the install, reporting progress back
-  in Discord as it runs.
+- The bot checks their role against configured quotas and how many active
+  requests they already have. If within limits and the template has
+  required variables (e.g. Minecraft's `ACCEPT_EULA`, `MIN_RAM`/`MAX_RAM`),
+  Discord pops up a form pre-filled with each variable's default - up to
+  5 fields, Discord's own limit on a form; if a template defines more than
+  5 required variables, the rest silently keep their template defaults,
+  same as before this form existed. Submitting it creates the instance in
+  GameDock with those values, kicks off the install, and once installed,
+  **starts the server automatically** - reporting progress back in Discord
+  the whole way, ending with the server's port(s).
 - Quotas are configured per Discord role by anyone with the **Manage
   Server** permission, using `/gamedock-config` - no restart needed.
 - The bot keeps its own small SQLite database (which Discord user requested
@@ -103,12 +109,12 @@ Commands can take a minute to show up in Discord's UI the first time.
 
 ## Commands
 
-| Command                                                                          | Who                           | What it does                                               |
-| -------------------------------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------- |
-| `/request-server game:<autocomplete>`                                            | Anyone with a configured role | Creates + installs a server, subject to their role's quota |
-| `/gamedock-config set-role-limit role:<role> max-servers:<n> games:<comma-list>` | Manage Server permission      | Sets (or updates) a role's quota                           |
-| `/gamedock-config remove-role-limit role:<role>`                                 | Manage Server permission      | Removes a role's quota entirely                            |
-| `/gamedock-config list`                                                          | Manage Server permission      | Lists all configured role quotas                           |
+| Command                                                                          | Who                           | What it does                                                                                                                                           |
+| -------------------------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/request-server game:<autocomplete>`                                            | Anyone with a configured role | Creates, installs, and starts a server, subject to their role's quota - may show a form first for the game's required settings (e.g. Minecraft's EULA) |
+| `/gamedock-config set-role-limit role:<role> max-servers:<n> games:<comma-list>` | Manage Server permission      | Sets (or updates) a role's quota                                                                                                                       |
+| `/gamedock-config remove-role-limit role:<role>`                                 | Manage Server permission      | Removes a role's quota entirely                                                                                                                        |
+| `/gamedock-config list`                                                          | Manage Server permission      | Lists all configured role quotas                                                                                                                       |
 
 `games` is a comma-separated list of GameDock template ids (e.g.
 `valheim,minecraft-java,rust`) - these match the `id` field from `GET
@@ -127,13 +133,14 @@ their other roles list.
 
 ## Troubleshooting
 
-| Symptom                                                         | Fix                                                                                                                                                                                                            |
-| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Slash commands don't show up in Discord                         | Wait a minute (guild command registration isn't always instant), then check `journalctl -u gamedock-discord-bot` for a registration error. Confirm the bot was invited with the `applications.commands` scope. |
-| `/request-server` says "you don't have a role set up"           | An admin needs to run `/gamedock-config set-role-limit` for that member's role first.                                                                                                                          |
-| A request is stuck "Installing..." for a long time              | Some games (Steam-based, especially Rust/CS2) can take many minutes to download - check the job's real status in the GameDock web UI (Jobs page) if it's been longer than expected.                            |
-| Someone's quota looks full even though their old server is gone | Reconciliation runs every `RECONCILE_INTERVAL_MINUTES` (default 15) - wait for the next pass, or restart the bot to run one immediately.                                                                       |
-| `dist/index.js not found` when running `install-discord-bot.sh` | Run `scripts/install.sh` first (or re-run it) - it builds every workspace package, including this one.                                                                                                         |
+| Symptom                                                         | Fix                                                                                                                                                                                                                                               |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Slash commands don't show up in Discord                         | Wait a minute (guild command registration isn't always instant), then check `journalctl -u gamedock-discord-bot` for a registration error. Confirm the bot was invited with the `applications.commands` scope.                                    |
+| `/request-server` says "you don't have a role set up"           | An admin needs to run `/gamedock-config set-role-limit` for that member's role first.                                                                                                                                                             |
+| A request is stuck "Installing..." for a long time              | Some games (Steam-based, especially Rust/CS2) can take many minutes to download - check the job's real status in the GameDock web UI (Jobs page) if it's been longer than expected.                                                               |
+| Server installed but says it failed to start automatically      | The form's values didn't pass GameDock's own validation for that variable (e.g. an unaccepted EULA, or a value not matching the field's expected pattern) - fix it from the instance's Settings page in the GameDock web UI, then start it there. |
+| Someone's quota looks full even though their old server is gone | Reconciliation runs every `RECONCILE_INTERVAL_MINUTES` (default 15) - wait for the next pass, or restart the bot to run one immediately.                                                                                                          |
+| `dist/index.js not found` when running `install-discord-bot.sh` | Run `scripts/install.sh` first (or re-run it) - it builds every workspace package, including this one.                                                                                                                                            |
 
 ## Security notes
 
