@@ -30,22 +30,22 @@ export class TemplateService {
     return join(this.dataDir, 'templates');
   }
 
-  reload(): void {
+  async reload(): Promise<void> {
     const { templates, errors } = loadTemplates([builtinTemplateDir(), this.userTemplateDir()]);
     this.templates = new Map(templates.map((t) => [t.id, t]));
     this.loadErrors = errors;
     for (const err of errors) {
       this.logger.warn({ file: err.file }, `template failed to load: ${err.message}`);
     }
-    this.syncToDatabase();
+    await this.syncToDatabase();
     this.logger.info({ count: this.templates.size }, 'game templates loaded');
   }
 
-  private syncToDatabase(): void {
+  private async syncToDatabase(): Promise<void> {
     const now = nowIso();
-    this.db.transaction(() => {
+    await this.db.transaction(async () => {
       for (const tpl of this.templates.values()) {
-        this.db.run(
+        await this.db.run(
           `INSERT INTO game_templates (id, name, source, definition, created_at, updated_at)
            VALUES (?, ?, 'file', ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET name = excluded.name, definition = excluded.definition, updated_at = excluded.updated_at`,

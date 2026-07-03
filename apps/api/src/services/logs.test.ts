@@ -18,9 +18,9 @@ function entry(overrides: Partial<LogEntry> = {}): LogEntry {
 function fakeSettings(initial: Record<string, string> = {}): SettingsRepository {
   const store = new Map(Object.entries(initial));
   return {
-    get: (key: string) => store.get(key),
-    set: (key: string, value: string) => void store.set(key, value),
-    all: () => Object.fromEntries(store),
+    get: async (key: string) => store.get(key),
+    set: async (key: string, value: string) => void store.set(key, value),
+    all: async () => Object.fromEntries(store),
   } as unknown as SettingsRepository;
 }
 
@@ -29,47 +29,47 @@ afterEach(() => {
 });
 
 describe('LogService', () => {
-  it('rejects an invalid level and leaves the registry/settings untouched', () => {
+  it('rejects an invalid level and leaves the registry/settings untouched', async () => {
     const root = pino({ level: 'info' }, { write: vi.fn() });
     const registry = new LoggerRegistry(root);
     const settings = fakeSettings();
     const service = new LogService(new LogRingBuffer(), registry, settings);
 
-    expect(() => service.setLevel('nonsense')).toThrow(/Invalid log level/);
+    await expect(service.setLevel('nonsense')).rejects.toThrow(/Invalid log level/);
     expect(registry.currentLevel()).toBe('info');
-    expect(settings.get('log_level')).toBeUndefined();
+    await expect(settings.get('log_level')).resolves.toBeUndefined();
   });
 
-  it('applies and persists a valid level change', () => {
+  it('applies and persists a valid level change', async () => {
     const root = pino({ level: 'info' }, { write: vi.fn() });
     const registry = new LoggerRegistry(root);
     const settings = fakeSettings();
     const service = new LogService(new LogRingBuffer(), registry, settings);
 
-    service.setLevel('debug');
+    await service.setLevel('debug');
 
     expect(service.getLevel()).toBe('debug');
-    expect(settings.get('log_level')).toBe('debug');
+    await expect(settings.get('log_level')).resolves.toBe('debug');
   });
 
-  it('restores a previously saved level on startup', () => {
+  it('restores a previously saved level on startup', async () => {
     const root = pino({ level: 'info' }, { write: vi.fn() });
     const registry = new LoggerRegistry(root);
     const settings = fakeSettings({ log_level: 'trace' });
     const service = new LogService(new LogRingBuffer(), registry, settings);
 
-    service.restoreLevel();
+    await service.restoreLevel();
 
     expect(service.getLevel()).toBe('trace');
   });
 
-  it('ignores a corrupt saved level rather than applying garbage', () => {
+  it('ignores a corrupt saved level rather than applying garbage', async () => {
     const root = pino({ level: 'info' }, { write: vi.fn() });
     const registry = new LoggerRegistry(root);
     const settings = fakeSettings({ log_level: 'not-a-level' });
     const service = new LogService(new LogRingBuffer(), registry, settings);
 
-    service.restoreLevel();
+    await service.restoreLevel();
 
     expect(service.getLevel()).toBe('info');
   });

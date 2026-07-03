@@ -14,28 +14,33 @@ export interface BackupRow {
 export class BackupRepository {
   constructor(private db: DatabaseClient) {}
 
-  create(instanceId: string, fileName: string, sizeBytes: number, note: string | null): BackupRow {
+  async create(
+    instanceId: string,
+    fileName: string,
+    sizeBytes: number,
+    note: string | null,
+  ): Promise<BackupRow> {
     const id = randomUUID();
-    this.db.run(
+    await this.db.run(
       `INSERT INTO backups (id, instance_id, file_name, size_bytes, note, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [id, instanceId, fileName, sizeBytes, note, nowIso()],
     );
-    return this.findById(id)!;
+    return (await this.findById(id))!;
   }
 
-  findById(id: string): BackupRow | undefined {
+  async findById(id: string): Promise<BackupRow | undefined> {
     return this.db.get<BackupRow>('SELECT * FROM backups WHERE id = ?', [id]);
   }
 
-  listForInstance(instanceId: string): BackupRow[] {
+  async listForInstance(instanceId: string): Promise<BackupRow[]> {
     return this.db.all<BackupRow>(
       'SELECT * FROM backups WHERE instance_id = ? ORDER BY created_at DESC',
       [instanceId],
     );
   }
 
-  delete(id: string): void {
-    this.db.run('DELETE FROM backups WHERE id = ?', [id]);
+  async delete(id: string): Promise<void> {
+    await this.db.run('DELETE FROM backups WHERE id = ?', [id]);
   }
 }

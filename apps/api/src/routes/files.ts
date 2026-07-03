@@ -19,8 +19,8 @@ const mkdirSchema = z.object({
 });
 
 export function registerFileRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const instanceDirOf = (id: string): string => {
-    ctx.instances.getRow(id); // 404 when unknown
+  const instanceDirOf = async (id: string): Promise<string> => {
+    await ctx.instances.getRow(id); // 404 when unknown
     return ctx.instances.instanceDir(id);
   };
 
@@ -29,7 +29,7 @@ export function registerFileRoutes(app: FastifyInstance, ctx: AppContext): void 
     const query = pathQuerySchema.safeParse(request.query);
     if (!query.success) throw badRequest('Invalid path');
     const rel = sanitizeRelativePath(query.data.path);
-    return ctx.files.list(instanceDirOf(id), rel);
+    return ctx.files.list(await instanceDirOf(id), rel);
   });
 
   app.get(
@@ -40,7 +40,7 @@ export function registerFileRoutes(app: FastifyInstance, ctx: AppContext): void 
       const query = pathQuerySchema.safeParse(request.query);
       if (!query.success || !query.data.path) throw badRequest('A file path is required');
       const rel = sanitizeRelativePath(query.data.path);
-      return ctx.files.readText(instanceDirOf(id), rel);
+      return ctx.files.readText(await instanceDirOf(id), rel);
     },
   );
 
@@ -52,8 +52,8 @@ export function registerFileRoutes(app: FastifyInstance, ctx: AppContext): void 
       const parsed = writeSchema.safeParse(request.body);
       if (!parsed.success) throw badRequest('path and content are required');
       const rel = sanitizeRelativePath(parsed.data.path);
-      await ctx.files.writeText(instanceDirOf(id), rel, parsed.data.content);
-      ctx.audit({
+      await ctx.files.writeText(await instanceDirOf(id), rel, parsed.data.content);
+      await ctx.audit({
         userId: request.auth!.user.id,
         username: request.auth!.user.username,
         action: 'file.write',
@@ -73,7 +73,7 @@ export function registerFileRoutes(app: FastifyInstance, ctx: AppContext): void 
       const parsed = mkdirSchema.safeParse(request.body);
       if (!parsed.success) throw badRequest('A directory path is required');
       const rel = sanitizeRelativePath(parsed.data.path);
-      await ctx.files.createDirectory(instanceDirOf(id), rel);
+      await ctx.files.createDirectory(await instanceDirOf(id), rel);
       return { ok: true };
     },
   );
@@ -83,7 +83,7 @@ export function registerFileRoutes(app: FastifyInstance, ctx: AppContext): void 
     { preHandler: requireRole('operator') },
     async (request) => {
       const { id } = request.params as { id: string };
-      const instanceDir = instanceDirOf(id);
+      const instanceDir = await instanceDirOf(id);
 
       const file = await request.file();
       if (!file) throw badRequest('No file uploaded (multipart field "file" expected)');
@@ -99,7 +99,7 @@ export function registerFileRoutes(app: FastifyInstance, ctx: AppContext): void 
       const relPath = relDir ? `${relDir}/${fileName}` : fileName;
 
       const written = await ctx.files.upload(instanceDir, relPath, file.file);
-      ctx.audit({
+      await ctx.audit({
         userId: request.auth!.user.id,
         username: request.auth!.user.username,
         action: 'file.upload',
@@ -119,8 +119,8 @@ export function registerFileRoutes(app: FastifyInstance, ctx: AppContext): void 
       const query = pathQuerySchema.safeParse(request.query);
       if (!query.success || !query.data.path) throw badRequest('A path is required');
       const rel = sanitizeRelativePath(query.data.path);
-      await ctx.files.delete(instanceDirOf(id), rel);
-      ctx.audit({
+      await ctx.files.delete(await instanceDirOf(id), rel);
+      await ctx.audit({
         userId: request.auth!.user.id,
         username: request.auth!.user.username,
         action: 'file.delete',

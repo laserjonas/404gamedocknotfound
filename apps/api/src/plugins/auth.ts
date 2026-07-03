@@ -19,7 +19,7 @@ export function buildAuthHook(authService: AuthService) {
     request.auth = null;
     const token = request.cookies[SESSION_COOKIE];
     if (!token) return;
-    request.auth = authService.validateSession(token);
+    request.auth = await authService.validateSession(token);
   };
 }
 

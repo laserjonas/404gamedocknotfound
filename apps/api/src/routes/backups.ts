@@ -12,7 +12,7 @@ const createBackupSchema = z.object({
 export function registerBackupRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get('/api/instances/:id/backups', { preHandler: requireRole('viewer') }, async (request) => {
     const { id } = request.params as { id: string };
-    ctx.instances.getRow(id);
+    await ctx.instances.getRow(id);
     return ctx.backups.list(id);
   });
 
@@ -23,20 +23,20 @@ export function registerBackupRoutes(app: FastifyInstance, ctx: AppContext): voi
       const { id } = request.params as { id: string };
       const parsed = createBackupSchema.safeParse(request.body ?? {});
       if (!parsed.success) throw badRequest('Invalid backup options');
-      const job = ctx.instances.enqueueBackup(
+      const job = await ctx.instances.enqueueBackup(
         id,
         request.auth!.user.username,
         parsed.data.note ?? null,
         parsed.data.excludePaths ?? [],
       );
-      ctx.audit({
+      await ctx.audit({
         userId: request.auth!.user.id,
         username: request.auth!.user.username,
         action: 'backup.create',
         targetType: 'instance',
         targetId: id,
       });
-      return { job: ctx.jobs.dto(job) };
+      return { job: await ctx.jobs.dto(job) };
     },
   );
 
@@ -45,8 +45,8 @@ export function registerBackupRoutes(app: FastifyInstance, ctx: AppContext): voi
     { preHandler: requireRole('operator') },
     async (request) => {
       const { id, backupId } = request.params as { id: string; backupId: string };
-      const job = ctx.instances.enqueueRestore(id, backupId, request.auth!.user.username);
-      ctx.audit({
+      const job = await ctx.instances.enqueueRestore(id, backupId, request.auth!.user.username);
+      await ctx.audit({
         userId: request.auth!.user.id,
         username: request.auth!.user.username,
         action: 'backup.restore',
@@ -54,7 +54,7 @@ export function registerBackupRoutes(app: FastifyInstance, ctx: AppContext): voi
         targetId: id,
         detail: backupId,
       });
-      return { job: ctx.jobs.dto(job) };
+      return { job: await ctx.jobs.dto(job) };
     },
   );
 
@@ -63,11 +63,11 @@ export function registerBackupRoutes(app: FastifyInstance, ctx: AppContext): voi
     { preHandler: requireRole('operator') },
     async (request) => {
       const { id, backupId } = request.params as { id: string; backupId: string };
-      ctx.instances.getRow(id);
-      const backup = ctx.repos.backups.findById(backupId);
+      await ctx.instances.getRow(id);
+      const backup = await ctx.repos.backups.findById(backupId);
       if (!backup || backup.instance_id !== id) throw notFound('Backup not found');
       await ctx.backups.delete(backup);
-      ctx.audit({
+      await ctx.audit({
         userId: request.auth!.user.id,
         username: request.auth!.user.username,
         action: 'backup.delete',

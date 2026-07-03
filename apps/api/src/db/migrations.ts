@@ -140,8 +140,8 @@ const MIGRATIONS: Migration[] = [
   },
 ];
 
-export function runMigrations(db: DatabaseClient, logger?: Logger): void {
-  db.exec(`
+export async function runMigrations(db: DatabaseClient, logger?: Logger): Promise<void> {
+  await db.exec(`
     CREATE TABLE IF NOT EXISTS _migrations (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
@@ -149,14 +149,16 @@ export function runMigrations(db: DatabaseClient, logger?: Logger): void {
     );
   `);
 
-  const applied = new Set(db.all<{ id: number }>('SELECT id FROM _migrations').map((r) => r.id));
+  const applied = new Set(
+    (await db.all<{ id: number }>('SELECT id FROM _migrations')).map((r) => r.id),
+  );
 
   for (const migration of MIGRATIONS.sort((a, b) => a.id - b.id)) {
     if (applied.has(migration.id)) continue;
     logger?.info({ migration: migration.name }, 'applying database migration');
-    db.transaction(() => {
-      db.exec(migration.sql);
-      db.run('INSERT INTO _migrations (id, name, applied_at) VALUES (?, ?, ?)', [
+    await db.transaction(async () => {
+      await db.exec(migration.sql);
+      await db.run('INSERT INTO _migrations (id, name, applied_at) VALUES (?, ?, ?)', [
         migration.id,
         migration.name,
         new Date().toISOString(),

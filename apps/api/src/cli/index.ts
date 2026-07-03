@@ -97,47 +97,47 @@ async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   const config = loadConfig();
 
-  const openDb = () => {
+  const openDb = async () => {
     const db = createDatabase(config.databaseUrl, config.dataDir);
-    runMigrations(db);
+    await runMigrations(db);
     return db;
   };
 
   switch (command) {
     case 'user:create-admin': {
-      const db = openDb();
+      const db = await openDb();
       const users = new UserRepository(db);
       const username = args[0] ?? (await prompt('Admin username: '));
       if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{1,63}$/.test(username)) {
         console.error('Invalid username (2-64 chars, alphanumeric plus _.-).');
         process.exit(1);
       }
-      if (users.findByUsername(username)) {
+      if (await users.findByUsername(username)) {
         console.error(`User "${username}" already exists.`);
         process.exit(1);
       }
       const password = await promptPassword();
-      users.create(username, await hashPassword(password), 'admin');
+      await users.create(username, await hashPassword(password), 'admin');
       console.log(`Admin user "${username}" created.`);
-      db.close();
+      await db.close();
       break;
     }
 
     case 'user:reset-password': {
-      const db = openDb();
+      const db = await openDb();
       const users = new UserRepository(db);
       const username = args[0] ?? (await prompt('Username: '));
-      const user = users.findByUsername(username);
+      const user = await users.findByUsername(username);
       if (!user) {
         console.error(`User "${username}" not found.`);
         process.exit(1);
       }
       const password = await promptPassword();
-      users.update(user.id, { passwordHash: await hashPassword(password) });
+      await users.update(user.id, { passwordHash: await hashPassword(password) });
       // Invalidate all sessions for that user.
-      db.run('DELETE FROM sessions WHERE user_id = ?', [user.id]);
+      await db.run('DELETE FROM sessions WHERE user_id = ?', [user.id]);
       console.log(`Password for "${username}" reset. All their sessions were invalidated.`);
-      db.close();
+      await db.close();
       break;
     }
 
@@ -178,21 +178,22 @@ async function main(): Promise<void> {
         console.log(`  WARNING: ${err.message}`);
       }
 
-      const db = openDb();
+      const db = await openDb();
       const users = new UserRepository(db);
-      if (users.count() === 0) {
+      const userCount = await users.count();
+      if (userCount === 0) {
         console.log('\nNo users found. Create one with: pnpm gamedock user:create-admin');
       } else {
-        console.log(`\nUsers:          ${users.count()} (${users.countAdmins()} active admins)`);
+        console.log(`\nUsers:          ${userCount} (${await users.countAdmins()} active admins)`);
       }
-      db.close();
+      await db.close();
       break;
     }
 
     case 'instances:list': {
-      const db = openDb();
+      const db = await openDb();
       const instances = new InstanceRepository(db);
-      const rows = instances.list();
+      const rows = await instances.list();
       if (rows.length === 0) {
         console.log('No instances.');
       } else {
@@ -205,7 +206,7 @@ async function main(): Promise<void> {
           );
         }
       }
-      db.close();
+      await db.close();
       break;
     }
 

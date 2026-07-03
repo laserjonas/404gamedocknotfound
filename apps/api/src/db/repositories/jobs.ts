@@ -22,21 +22,25 @@ const MAX_LOG_CHARS = 1_000_000;
 export class JobRepository {
   constructor(private db: DatabaseClient) {}
 
-  create(type: JobType, instanceId: string | null, createdBy: string | null): JobRow {
+  async create(
+    type: JobType,
+    instanceId: string | null,
+    createdBy: string | null,
+  ): Promise<JobRow> {
     const id = randomUUID();
-    this.db.run(
+    await this.db.run(
       `INSERT INTO jobs (id, type, status, instance_id, created_by, created_at)
        VALUES (?, ?, 'queued', ?, ?, ?)`,
       [id, type, instanceId, createdBy, nowIso()],
     );
-    return this.findById(id)!;
+    return (await this.findById(id))!;
   }
 
-  findById(id: string): JobRow | undefined {
+  async findById(id: string): Promise<JobRow | undefined> {
     return this.db.get<JobRow>('SELECT * FROM jobs WHERE id = ?', [id]);
   }
 
-  list(limit = 50, instanceId?: string): JobRow[] {
+  async list(limit = 50, instanceId?: string): Promise<JobRow[]> {
     if (instanceId) {
       return this.db.all<JobRow>(
         'SELECT * FROM jobs WHERE instance_id = ? ORDER BY created_at DESC LIMIT ?',
@@ -47,7 +51,7 @@ export class JobRepository {
   }
 
   /** Any queued or running job blocks new jobs for the same instance. */
-  findActiveForInstance(instanceId: string): JobRow | undefined {
+  async findActiveForInstance(instanceId: string): Promise<JobRow | undefined> {
     return this.db.get<JobRow>(
       "SELECT * FROM jobs WHERE instance_id = ? AND status IN ('queued', 'running') LIMIT 1",
       [instanceId],
@@ -55,19 +59,26 @@ export class JobRepository {
   }
 
   /** Any queued or running job of the given type (used for instance-less jobs like system_update). */
-  findActiveByType(type: JobType): JobRow | undefined {
+  async findActiveByType(type: JobType): Promise<JobRow | undefined> {
     return this.db.get<JobRow>(
       "SELECT * FROM jobs WHERE type = ? AND status IN ('queued', 'running') LIMIT 1",
       [type],
     );
   }
 
-  markStarted(id: string): void {
-    this.db.run("UPDATE jobs SET status = 'running', started_at = ? WHERE id = ?", [nowIso(), id]);
+  async markStarted(id: string): Promise<void> {
+    await this.db.run("UPDATE jobs SET status = 'running', started_at = ? WHERE id = ?", [
+      nowIso(),
+      id,
+    ]);
   }
 
-  markFinished(id: string, status: 'succeeded' | 'failed' | 'canceled', message?: string): void {
-    this.db.run('UPDATE jobs SET status = ?, finished_at = ?, message = ? WHERE id = ?', [
+  async markFinished(
+    id: string,
+    status: 'succeeded' | 'failed' | 'canceled',
+    message?: string,
+  ): Promise<void> {
+    await this.db.run('UPDATE jobs SET status = ?, finished_at = ?, message = ? WHERE id = ?', [
       status,
       nowIso(),
       message ?? null,
@@ -75,32 +86,34 @@ export class JobRepository {
     ]);
   }
 
-  setProgress(id: string, progress: number | null, message?: string): void {
+  async setProgress(id: string, progress: number | null, message?: string): Promise<void> {
     if (message !== undefined) {
-      this.db.run('UPDATE jobs SET progress = ?, message = ? WHERE id = ?', [
+      await this.db.run('UPDATE jobs SET progress = ?, message = ? WHERE id = ?', [
         progress,
         message,
         id,
       ]);
     } else {
-      this.db.run('UPDATE jobs SET progress = ? WHERE id = ?', [progress, id]);
+      await this.db.run('UPDATE jobs SET progress = ? WHERE id = ?', [progress, id]);
     }
   }
 
-  appendLog(id: string, text: string): void {
+  async appendLog(id: string, text: string): Promise<void> {
     // Keep at most MAX_LOG_CHARS of the newest output.
-    this.db.run(`UPDATE jobs SET log = substr(log || ?, -${MAX_LOG_CHARS}) WHERE id = ?`, [
+    await this.db.run(`UPDATE jobs SET log = substr(log || ?, -${MAX_LOG_CHARS}) WHERE id = ?`, [
       text,
       id,
     ]);
   }
 
   /** Called on startup: jobs cannot survive a process restart. */
-  failInterrupted(): number {
-    return this.db.run(
-      `UPDATE jobs SET status = 'failed', finished_at = ?, message = 'Interrupted by GameDock restart'
+  async failInterrupted(): Promise<number> {
+    return (
+      await this.db.run(
+        `UPDATE jobs SET status = 'failed', finished_at = ?, message = 'Interrupted by GameDock restart'
        WHERE status IN ('queued', 'running')`,
-      [nowIso()],
+        [nowIso()],
+      )
     ).changes;
   }
 }

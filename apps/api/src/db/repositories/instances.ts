@@ -39,30 +39,34 @@ export interface KeyValueRow {
 export class InstanceRepository {
   constructor(private db: DatabaseClient) {}
 
-  list(): InstanceRow[] {
+  async list(): Promise<InstanceRow[]> {
     return this.db.all<InstanceRow>('SELECT * FROM server_instances ORDER BY name');
   }
 
-  findById(id: string): InstanceRow | undefined {
+  async findById(id: string): Promise<InstanceRow | undefined> {
     return this.db.get<InstanceRow>('SELECT * FROM server_instances WHERE id = ?', [id]);
   }
 
-  findByName(name: string): InstanceRow | undefined {
+  async findByName(name: string): Promise<InstanceRow | undefined> {
     return this.db.get<InstanceRow>('SELECT * FROM server_instances WHERE name = ?', [name]);
   }
 
-  create(params: { name: string; templateId: string; templateDefinition: string }): InstanceRow {
+  async create(params: {
+    name: string;
+    templateId: string;
+    templateDefinition: string;
+  }): Promise<InstanceRow> {
     const id = randomUUID();
     const now = nowIso();
-    this.db.run(
+    await this.db.run(
       `INSERT INTO server_instances (id, name, template_id, template_definition, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, 'not_installed', ?, ?)`,
       [id, params.name, params.templateId, params.templateDefinition, now, now],
     );
-    return this.findById(id)!;
+    return (await this.findById(id))!;
   }
 
-  update(
+  async update(
     id: string,
     patch: Partial<{
       name: string;
@@ -77,7 +81,7 @@ export class InstanceRepository {
       backupIntervalHours: number | null;
       backupRetentionCount: number | null;
     }>,
-  ): void {
+  ): Promise<void> {
     const sets: string[] = [];
     const params: unknown[] = [];
     const map: [keyof typeof patch, string, (v: unknown) => unknown][] = [
@@ -102,30 +106,30 @@ export class InstanceRepository {
     if (sets.length === 0) return;
     sets.push('updated_at = ?');
     params.push(nowIso(), id);
-    this.db.run(`UPDATE server_instances SET ${sets.join(', ')} WHERE id = ?`, params);
+    await this.db.run(`UPDATE server_instances SET ${sets.join(', ')} WHERE id = ?`, params);
   }
 
-  delete(id: string): void {
-    this.db.run('DELETE FROM server_instances WHERE id = ?', [id]);
+  async delete(id: string): Promise<void> {
+    await this.db.run('DELETE FROM server_instances WHERE id = ?', [id]);
   }
 
   // --- ports ---------------------------------------------------------------
 
-  listPorts(instanceId: string): InstancePortRow[] {
+  async listPorts(instanceId: string): Promise<InstancePortRow[]> {
     return this.db.all<InstancePortRow>(
       'SELECT * FROM instance_ports WHERE instance_id = ? ORDER BY port',
       [instanceId],
     );
   }
 
-  replacePorts(
+  async replacePorts(
     instanceId: string,
     ports: { name: string; port: number; protocol: PortProtocol }[],
-  ): void {
-    this.db.transaction(() => {
-      this.db.run('DELETE FROM instance_ports WHERE instance_id = ?', [instanceId]);
+  ): Promise<void> {
+    await this.db.transaction(async () => {
+      await this.db.run('DELETE FROM instance_ports WHERE instance_id = ?', [instanceId]);
       for (const p of ports) {
-        this.db.run(
+        await this.db.run(
           'INSERT INTO instance_ports (id, instance_id, name, port, protocol) VALUES (?, ?, ?, ?, ?)',
           [randomUUID(), instanceId, p.name, p.port, p.protocol],
         );
@@ -135,19 +139,19 @@ export class InstanceRepository {
 
   // --- env vars & template variables ---------------------------------------
 
-  getEnvVars(instanceId: string): Record<string, string> {
-    const rows = this.db.all<KeyValueRow>(
+  async getEnvVars(instanceId: string): Promise<Record<string, string>> {
+    const rows = await this.db.all<KeyValueRow>(
       'SELECT * FROM instance_env_vars WHERE instance_id = ? ORDER BY key',
       [instanceId],
     );
     return Object.fromEntries(rows.map((r) => [r.key, r.value]));
   }
 
-  replaceEnvVars(instanceId: string, envVars: Record<string, string>): void {
-    this.db.transaction(() => {
-      this.db.run('DELETE FROM instance_env_vars WHERE instance_id = ?', [instanceId]);
+  async replaceEnvVars(instanceId: string, envVars: Record<string, string>): Promise<void> {
+    await this.db.transaction(async () => {
+      await this.db.run('DELETE FROM instance_env_vars WHERE instance_id = ?', [instanceId]);
       for (const [key, value] of Object.entries(envVars)) {
-        this.db.run(
+        await this.db.run(
           'INSERT INTO instance_env_vars (id, instance_id, key, value) VALUES (?, ?, ?, ?)',
           [randomUUID(), instanceId, key, value],
         );
@@ -155,19 +159,19 @@ export class InstanceRepository {
     });
   }
 
-  getVariables(instanceId: string): Record<string, string> {
-    const rows = this.db.all<KeyValueRow>(
+  async getVariables(instanceId: string): Promise<Record<string, string>> {
+    const rows = await this.db.all<KeyValueRow>(
       'SELECT * FROM instance_variables WHERE instance_id = ? ORDER BY key',
       [instanceId],
     );
     return Object.fromEntries(rows.map((r) => [r.key, r.value]));
   }
 
-  replaceVariables(instanceId: string, variables: Record<string, string>): void {
-    this.db.transaction(() => {
-      this.db.run('DELETE FROM instance_variables WHERE instance_id = ?', [instanceId]);
+  async replaceVariables(instanceId: string, variables: Record<string, string>): Promise<void> {
+    await this.db.transaction(async () => {
+      await this.db.run('DELETE FROM instance_variables WHERE instance_id = ?', [instanceId]);
       for (const [key, value] of Object.entries(variables)) {
-        this.db.run(
+        await this.db.run(
           'INSERT INTO instance_variables (id, instance_id, key, value) VALUES (?, ?, ?, ?)',
           [randomUUID(), instanceId, key, value],
         );

@@ -39,9 +39,9 @@ export class BackupService {
     return join(this.instanceBackupDir(row.instance_id), row.file_name);
   }
 
-  list(instanceId: string): BackupDto[] {
-    return this.backups
-      .listForInstance(instanceId)
+  async list(instanceId: string): Promise<BackupDto[]> {
+    const rows = await this.backups.listForInstance(instanceId);
+    return rows
       .filter((row) => existsSync(join(this.instanceBackupDir(instanceId), row.file_name)))
       .map(toBackupDto);
   }
@@ -100,7 +100,7 @@ export class BackupService {
 
     const size = (await stat(target)).size;
     params.onLog(`Archive created (${(size / 1024 / 1024).toFixed(1)} MiB)`);
-    return this.backups.create(instanceId, fileName, size, params.note);
+    return await this.backups.create(instanceId, fileName, size, params.note);
   }
 
   async restore(params: {
@@ -131,6 +131,6 @@ export class BackupService {
   async delete(row: BackupRow): Promise<void> {
     const archive = this.archivePath(row);
     await rm(archive, { force: true });
-    this.backups.delete(row.id);
+    await this.backups.delete(row.id);
   }
 }

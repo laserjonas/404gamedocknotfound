@@ -30,16 +30,16 @@ export function toAuditDto(row: AuditRow): AuditLogDto {
 export class AuditRepository {
   constructor(private db: DatabaseClient) {}
 
-  add(entry: {
+  async add(entry: {
     userId?: string | null;
     username?: string | null;
     action: string;
     targetType?: string;
     targetId?: string;
     detail?: string;
-  }): AuditRow {
+  }): Promise<AuditRow> {
     const id = randomUUID();
-    this.db.run(
+    await this.db.run(
       `INSERT INTO audit_logs (id, user_id, username, action, target_type, target_id, detail, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -53,10 +53,10 @@ export class AuditRepository {
         nowIso(),
       ],
     );
-    return this.db.get<AuditRow>('SELECT * FROM audit_logs WHERE id = ?', [id])!;
+    return (await this.db.get<AuditRow>('SELECT * FROM audit_logs WHERE id = ?', [id]))!;
   }
 
-  list(limit = 100): AuditRow[] {
+  async list(limit = 100): Promise<AuditRow[]> {
     return this.db.all<AuditRow>('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?', [
       limit,
     ]);

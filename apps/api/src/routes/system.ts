@@ -30,10 +30,11 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
 
   app.get('/api/system/stats', { preHandler: requireRole('viewer') }, async () => {
     const base = await ctx.systemStats.collect();
+    const instances = await ctx.repos.instances.list();
     return {
       ...base,
       runningInstances: ctx.processes.runningCount(),
-      totalInstances: ctx.repos.instances.list().length,
+      totalInstances: instances.length,
     };
   });
 
@@ -44,13 +45,14 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
   app.get('/api/system/audit', { preHandler: requireRole('admin') }, async (request) => {
     const { limit } = request.query as { limit?: string };
     const parsed = Math.min(Math.max(parseInt(limit ?? '100', 10) || 100, 1), 500);
-    return ctx.repos.audit.list(parsed).map(toAuditDto);
+    const rows = await ctx.repos.audit.list(parsed);
+    return rows.map(toAuditDto);
   });
 
   app.get('/api/system/events', { preHandler: requireRole('viewer') }, async () => {
     // Recent instance lifecycle events for the dashboard.
-    return ctx.repos.audit
-      .list(50)
+    const rows = await ctx.repos.audit.list(50);
+    return rows
       .filter((row) => row.action.startsWith('instance.') || row.action.startsWith('backup.'))
       .map(toAuditDto);
   });
@@ -62,11 +64,11 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
   });
 
   app.post('/api/system/update', { preHandler: requireRole('admin') }, async (request) => {
-    if (ctx.repos.jobs.findActiveByType('system_update')) {
+    if (await ctx.repos.jobs.findActiveByType('system_update')) {
       throw conflict('An update is already in progress');
     }
 
-    const job = ctx.jobs.enqueue(
+    const job = await ctx.jobs.enqueue(
       'system_update',
       null,
       request.auth!.user.username,
@@ -76,13 +78,13 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
         setTimeout(() => process.exit(0), RESTART_DELAY_MS);
       },
     );
-    ctx.audit({
+    await ctx.audit({
       userId: request.auth?.user.id,
       username: request.auth?.user.username,
       action: 'system.update_started',
       targetType: 'system',
     });
-    return { job: ctx.jobs.dto(job) };
+    return { job: await ctx.jobs.dto(job) };
   });
 
   // --- logging ---------------------------------------------------------------
@@ -129,8 +131,8 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
   app.patch('/api/system/logs/level', { preHandler: requireRole('admin') }, async (request) => {
     const parsed = z.object({ level: z.string() }).safeParse(request.body);
     if (!parsed.success) throw badRequest('level is required');
-    ctx.logs.setLevel(parsed.data.level);
-    ctx.audit({
+    await ctx.logs.setLevel(parsed.data.level);
+    await ctx.audit({
       userId: request.auth?.user.id,
       username: request.auth?.user.username,
       action: 'system.log_level_changed',

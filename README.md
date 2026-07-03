@@ -1,5 +1,7 @@
 # GameDock Manager
 
+[![CI](https://github.com/laserjonas/404gamedocknotfound/actions/workflows/ci.yml/badge.svg)](https://github.com/laserjonas/404gamedocknotfound/actions/workflows/ci.yml)
+
 Self-hosted, open-source game server management panel for Debian. Install, update,
 start/stop, monitor and manage multiple dedicated game servers (Steam and non-Steam)
 from a clean web interface.

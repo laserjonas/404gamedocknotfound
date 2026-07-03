@@ -28,7 +28,7 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
       userAgent: request.headers['user-agent'],
     });
 
-    ctx.audit({
+    await ctx.audit({
       userId: result.user.id,
       username: result.user.username,
       action: 'auth.login',
@@ -42,13 +42,13 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     const token = request.cookies[SESSION_COOKIE];
     if (token) {
       if (request.auth) {
-        ctx.audit({
+        await ctx.audit({
           userId: request.auth.user.id,
           username: request.auth.user.username,
           action: 'auth.logout',
         });
       }
-      ctx.auth.logout(token);
+      await ctx.auth.logout(token);
     }
     reply.clearCookie(SESSION_COOKIE, { path: '/' });
     return { ok: true };

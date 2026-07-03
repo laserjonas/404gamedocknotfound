@@ -8,6 +8,11 @@ import { conflict } from '../errors.js';
 export interface JobHandle {
   id: string;
   log(line: string): void;
+  /**
+   * Fire-and-forget by design (like ProcessStatusSink): progress reporting
+   * happens from the middle of long install/backup loops that shouldn't
+   * block on a DB write completing. Failures are logged, not thrown.
+   */
   setProgress(percent: number | null, message?: string): void;
 }
 
@@ -51,42 +56,43 @@ export class JobService {
     private logger: Logger,
   ) {}
 
-  recoverAfterRestart(): void {
-    const failed = this.jobs.failInterrupted();
+  async recoverAfterRestart(): Promise<void> {
+    const failed = await this.jobs.failInterrupted();
     if (failed > 0) {
       this.logger.warn({ count: failed }, 'marked interrupted jobs as failed');
     }
   }
 
-  instanceName(instanceId: string | null): string | null {
+  async instanceName(instanceId: string | null): Promise<string | null> {
     if (!instanceId) return null;
-    return this.instances.findById(instanceId)?.name ?? null;
+    const row = await this.instances.findById(instanceId);
+    return row?.name ?? null;
   }
 
-  dto(row: JobRow): JobDto {
-    return toJobDto(row, this.instanceName(row.instance_id));
+  async dto(row: JobRow): Promise<JobDto> {
+    return toJobDto(row, await this.instanceName(row.instance_id));
   }
 
-  hasActiveJob(instanceId: string): boolean {
-    return this.jobs.findActiveForInstance(instanceId) !== undefined;
+  async hasActiveJob(instanceId: string): Promise<boolean> {
+    return (await this.jobs.findActiveForInstance(instanceId)) !== undefined;
   }
 
-  enqueue(
+  async enqueue(
     type: JobType,
     instanceId: string | null,
     createdBy: string | null,
     runner: JobRunner,
-  ): JobRow {
+  ): Promise<JobRow> {
     if (instanceId) {
-      const active = this.jobs.findActiveForInstance(instanceId);
+      const active = await this.jobs.findActiveForInstance(instanceId);
       if (active) {
         throw conflict(
           `Another operation (${active.type}) is already ${active.status} for this server`,
         );
       }
     }
-    const row = this.jobs.create(type, instanceId, createdBy);
-    this.publishUpdate(row.id);
+    const row = await this.jobs.create(type, instanceId, createdBy);
+    await this.publishUpdate(row.id);
     this.queue.push({ id: row.id, runner });
     queueMicrotask(() => this.pump());
     return row;
@@ -105,16 +111,17 @@ export class JobService {
 
   private async execute(queued: QueuedJob): Promise<void> {
     const { id } = queued;
-    this.jobs.markStarted(id);
-    this.publishUpdate(id);
+    await this.jobs.markStarted(id);
+    await this.publishUpdate(id);
 
     // Batch log writes: SQLite update per line would be wasteful for steamcmd.
     let pendingLog = '';
     let flushTimer: NodeJS.Timeout | null = null;
-    const flush = () => {
+    const flush = async () => {
       if (pendingLog) {
-        this.jobs.appendLog(id, pendingLog);
+        const text = pendingLog;
         pendingLog = '';
+        await this.jobs.appendLog(id, text);
       }
       flushTimer = null;
     };
@@ -127,43 +134,52 @@ export class JobService {
         pendingLog += text;
         this.events.publishJobLog(id, text);
         if (!flushTimer) {
-          flushTimer = setTimeout(flush, 500);
+          flushTimer = setTimeout(() => {
+            void flush().catch((err) => {
+              this.logger.warn({ jobId: id, err: (err as Error).message }, 'job log flush failed');
+            });
+          }, 500);
           flushTimer.unref();
         }
       },
       setProgress: (percent, message) => {
-        this.jobs.setProgress(id, percent, message);
+        void this.jobs.setProgress(id, percent, message).catch((err) => {
+          this.logger.warn(
+            { jobId: id, err: (err as Error).message },
+            'failed to persist job progress',
+          );
+        });
         // Throttle SSE updates to at most ~4/second.
         const now = Date.now();
         if (now - lastProgressPublish > 250) {
           lastProgressPublish = now;
-          this.publishUpdate(id);
+          void this.publishUpdate(id).catch(() => {});
         }
       },
     };
 
     try {
       await queued.runner(handle);
-      flush();
-      this.jobs.markFinished(id, 'succeeded');
+      await flush();
+      await this.jobs.markFinished(id, 'succeeded');
       this.logger.info({ jobId: id }, 'job succeeded');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       handle.log(`ERROR: ${message}`);
-      flush();
-      this.jobs.markFinished(id, 'failed', message.slice(0, 500));
+      await flush();
+      await this.jobs.markFinished(id, 'failed', message.slice(0, 500));
       this.logger.warn({ jobId: id, err: message }, 'job failed');
     } finally {
       if (flushTimer) clearTimeout(flushTimer);
-      flush();
-      this.publishUpdate(id);
+      await flush();
+      await this.publishUpdate(id);
     }
   }
 
-  private publishUpdate(id: string): void {
-    const row = this.jobs.findById(id);
+  private async publishUpdate(id: string): Promise<void> {
+    const row = await this.jobs.findById(id);
     if (row) {
-      this.events.publish({ kind: 'job_update', job: this.dto(row) });
+      this.events.publish({ kind: 'job_update', job: await this.dto(row) });
     }
   }
 }

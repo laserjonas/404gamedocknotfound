@@ -1,0 +1,32 @@
+# Runs GameDock Manager in a container instead of directly on the host - see
+# docs/DEPLOYMENT.md for how this compares to the bare-metal install path.
+#
+# Before first run:
+#   1. cp .env.example .env.docker  (then trim it down - only GAMEDOCK_SESSION_SECRET
+#      is required; everything else has a sane container-friendly default baked
+#      into the image, see Dockerfile)
+#   2. openssl rand -hex 32   -> paste into GAMEDOCK_SESSION_SECRET below
+#   3. docker compose up -d
+#   4. docker compose exec gamedock node apps/api/dist/cli/index.js user:create-admin
+#
+# The panel is reachable at http://localhost:8340 - put a TLS reverse proxy
+# (nginx, Caddy, Traefik) in front of it before exposing this beyond your LAN.
+
+services:
+  gamedock:
+    build: .
+    image: gamedock-manager:local
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:8340:8340'
+    environment:
+      # Required - generate with: openssl rand -hex 32
+      GAMEDOCK_SESSION_SECRET: ''
+      # GAMEDOCK_UPDATE_REPO_URL: https://github.com/laserjonas/404gamedocknotfound.git
+    volumes:
+      - gamedock-data:/var/lib/gamedock
+      - gamedock-logs:/var/log/gamedock
+
+volumes:
+  gamedock-data:
+  gamedock-logs:

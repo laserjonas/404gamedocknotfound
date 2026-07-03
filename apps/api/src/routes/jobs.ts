@@ -7,20 +7,21 @@ export function registerJobRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get('/api/jobs', { preHandler: requireRole('viewer') }, async (request) => {
     const { instanceId, limit } = request.query as { instanceId?: string; limit?: string };
     const parsedLimit = Math.min(Math.max(parseInt(limit ?? '50', 10) || 50, 1), 200);
-    return ctx.repos.jobs.list(parsedLimit, instanceId).map((row) => ctx.jobs.dto(row));
+    const rows = await ctx.repos.jobs.list(parsedLimit, instanceId);
+    return Promise.all(rows.map((row) => ctx.jobs.dto(row)));
   });
 
   app.get('/api/jobs/:id', { preHandler: requireRole('viewer') }, async (request) => {
     const { id } = request.params as { id: string };
-    const row = ctx.repos.jobs.findById(id);
+    const row = await ctx.repos.jobs.findById(id);
     if (!row) throw notFound('Job not found');
-    return { ...ctx.jobs.dto(row), log: row.log };
+    return { ...(await ctx.jobs.dto(row)), log: row.log };
   });
 
   // Live job log stream (SSE): replays the stored log, then follows.
   app.get('/api/jobs/:id/stream', { preHandler: requireRole('viewer') }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const row = ctx.repos.jobs.findById(id);
+    const row = await ctx.repos.jobs.findById(id);
     if (!row) throw notFound('Job not found');
 
     reply.raw.writeHead(200, {

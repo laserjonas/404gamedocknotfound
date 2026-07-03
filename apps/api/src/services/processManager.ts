@@ -15,10 +15,14 @@ import { resolveSafePath } from '../utils/safePath.js';
 const LOG_BUFFER_LINES = 1000;
 const LOG_FILE_MAX_BYTES = 5 * 1024 * 1024;
 
-/** Callbacks the process manager uses to persist state and record events. */
+/**
+ * Callbacks the process manager uses to persist state and record events.
+ * Async because they write to the database - invoked fire-and-forget from
+ * raw child_process event callbacks below, which can't themselves await.
+ */
 export interface ProcessStatusSink {
-  persistStatus(instanceId: string, status: InstanceStatus, pid: number | null): void;
-  recordEvent(action: string, instanceId: string, detail: string): void;
+  persistStatus(instanceId: string, status: InstanceStatus, pid: number | null): Promise<void>;
+  recordEvent(action: string, instanceId: string, detail: string): Promise<void>;
 }
 
 interface ManagedProcess {
@@ -72,6 +76,13 @@ export class ProcessManager {
 
   pidOf(instanceId: string): number | null {
     return this.processes.get(instanceId)?.pid ?? null;
+  }
+
+  /** Fire-and-forget a sink call from a sync/event-callback context, logging failures. */
+  private runSink(label: string, promise: Promise<void>): void {
+    void promise.catch((err) => {
+      this.logger.warn({ err: (err as Error).message }, `failed to ${label}`);
+    });
   }
 
   /** Minimal, sanitized environment for game processes (no GameDock secrets). */
@@ -138,10 +149,13 @@ export class ProcessManager {
     proc.on('spawn', () => {
       managed.pid = proc.pid ?? null;
       this.setStatus(managed, 'running');
-      this.sink.recordEvent(
-        'instance.started',
-        input.instanceId,
-        `pid ${managed.pid ?? 'unknown'}`,
+      this.runSink(
+        'record instance.started event',
+        this.sink.recordEvent(
+          'instance.started',
+          input.instanceId,
+          `pid ${managed.pid ?? 'unknown'}`,
+        ),
       );
     });
 
@@ -178,7 +192,10 @@ export class ProcessManager {
     if (managed.killTimer) clearTimeout(managed.killTimer);
     managed.logStream?.end();
     this.processes.delete(managed.instanceId);
-    this.sink.persistStatus(managed.instanceId, status, null);
+    this.runSink(
+      'persist instance status',
+      this.sink.persistStatus(managed.instanceId, status, null),
+    );
     this.events.publish({
       kind: 'instance_status',
       instanceId: managed.instanceId,
@@ -186,20 +203,29 @@ export class ProcessManager {
       pid: null,
     });
     if (status === 'crashed') {
-      this.sink.recordEvent(
-        'instance.crashed',
-        managed.instanceId,
-        `exit code ${exitCode ?? 'unknown'}`,
+      this.runSink(
+        'record instance.crashed event',
+        this.sink.recordEvent(
+          'instance.crashed',
+          managed.instanceId,
+          `exit code ${exitCode ?? 'unknown'}`,
+        ),
       );
     } else {
-      this.sink.recordEvent('instance.stopped', managed.instanceId, `exit code ${exitCode ?? 0}`);
+      this.runSink(
+        'record instance.stopped event',
+        this.sink.recordEvent('instance.stopped', managed.instanceId, `exit code ${exitCode ?? 0}`),
+      );
     }
     for (const waiter of managed.waiters) waiter();
   }
 
   private setStatus(managed: ManagedProcess, status: ManagedProcess['status']): void {
     managed.status = status;
-    this.sink.persistStatus(managed.instanceId, status, managed.pid);
+    this.runSink(
+      'persist instance status',
+      this.sink.persistStatus(managed.instanceId, status, managed.pid),
+    );
     this.events.publish({
       kind: 'instance_status',
       instanceId: managed.instanceId,

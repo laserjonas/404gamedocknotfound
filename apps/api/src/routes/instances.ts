@@ -35,13 +35,13 @@ const commandSchema = z.object({
 });
 
 export function registerInstanceRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const auditAction = (
+  const auditAction = async (
     request: { auth: { user: { id: string; username: string } } | null },
     action: string,
     instanceId: string,
     detail?: string,
   ) => {
-    ctx.audit({
+    await ctx.audit({
       userId: request.auth?.user.id,
       username: request.auth?.user.username,
       action,
@@ -57,7 +57,7 @@ export function registerInstanceRoutes(app: FastifyInstance, ctx: AppContext): v
 
   app.get('/api/instances/:id', { preHandler: requireRole('viewer') }, async (request) => {
     const { id } = request.params as { id: string };
-    const row = ctx.instances.getRow(id);
+    const row = await ctx.instances.getRow(id);
     return ctx.instances.toDto(row, true);
   });
 
@@ -69,7 +69,7 @@ export function registerInstanceRoutes(app: FastifyInstance, ctx: AppContext): v
       );
     }
     const row = await ctx.instances.create(parsed.data);
-    auditAction(request, 'instance.create', row.id, `${row.name} (${row.template_id})`);
+    await auditAction(request, 'instance.create', row.id, `${row.name} (${row.template_id})`);
     reply.code(201);
     return ctx.instances.toDto(row);
   });
@@ -83,16 +83,16 @@ export function registerInstanceRoutes(app: FastifyInstance, ctx: AppContext): v
       );
     }
     const row = await ctx.instances.update(id, parsed.data);
-    auditAction(request, 'instance.update', id, Object.keys(parsed.data).join(', '));
+    await auditAction(request, 'instance.update', id, Object.keys(parsed.data).join(', '));
     return ctx.instances.toDto(row);
   });
 
   app.delete('/api/instances/:id', { preHandler: requireRole('admin') }, async (request) => {
     const { id } = request.params as { id: string };
-    const row = ctx.instances.getRow(id);
-    const job = ctx.instances.enqueueDelete(id, request.auth!.user.username);
-    auditAction(request, 'instance.delete', id, row.name);
-    return { job: ctx.jobs.dto(job) };
+    const row = await ctx.instances.getRow(id);
+    const job = await ctx.instances.enqueueDelete(id, request.auth!.user.username);
+    await auditAction(request, 'instance.delete', id, row.name);
+    return { job: await ctx.jobs.dto(job) };
   });
 
   // --- actions -----------------------------------------------------------------
@@ -102,9 +102,9 @@ export function registerInstanceRoutes(app: FastifyInstance, ctx: AppContext): v
     { preHandler: requireRole('operator') },
     async (request) => {
       const { id } = request.params as { id: string };
-      const job = ctx.instances.enqueueInstall(id, request.auth!.user.username, false);
-      auditAction(request, 'instance.install', id);
-      return { job: ctx.jobs.dto(job) };
+      const job = await ctx.instances.enqueueInstall(id, request.auth!.user.username, false);
+      await auditAction(request, 'instance.install', id);
+      return { job: await ctx.jobs.dto(job) };
     },
   );
 
@@ -113,22 +113,22 @@ export function registerInstanceRoutes(app: FastifyInstance, ctx: AppContext): v
     { preHandler: requireRole('operator') },
     async (request) => {
       const { id } = request.params as { id: string };
-      const job = ctx.instances.enqueueInstall(id, request.auth!.user.username, true);
-      auditAction(request, 'instance.update_files', id);
-      return { job: ctx.jobs.dto(job) };
+      const job = await ctx.instances.enqueueInstall(id, request.auth!.user.username, true);
+      await auditAction(request, 'instance.update_files', id);
+      return { job: await ctx.jobs.dto(job) };
     },
   );
 
   app.post('/api/instances/:id/start', { preHandler: requireRole('operator') }, async (request) => {
     const { id } = request.params as { id: string };
-    ctx.instances.start(id);
-    auditAction(request, 'instance.start', id);
+    await ctx.instances.start(id);
+    await auditAction(request, 'instance.start', id);
     return { ok: true };
   });
 
   app.post('/api/instances/:id/stop', { preHandler: requireRole('operator') }, async (request) => {
     const { id } = request.params as { id: string };
-    auditAction(request, 'instance.stop', id);
+    await auditAction(request, 'instance.stop', id);
     await ctx.instances.stop(id);
     return { ok: true };
   });
@@ -138,7 +138,7 @@ export function registerInstanceRoutes(app: FastifyInstance, ctx: AppContext): v
     { preHandler: requireRole('operator') },
     async (request) => {
       const { id } = request.params as { id: string };
-      auditAction(request, 'instance.restart', id);
+      await auditAction(request, 'instance.restart', id);
       await ctx.instances.restart(id);
       return { ok: true };
     },
@@ -146,7 +146,7 @@ export function registerInstanceRoutes(app: FastifyInstance, ctx: AppContext): v
 
   app.post('/api/instances/:id/kill', { preHandler: requireRole('operator') }, async (request) => {
     const { id } = request.params as { id: string };
-    auditAction(request, 'instance.kill', id);
+    await auditAction(request, 'instance.kill', id);
     await ctx.instances.kill(id);
     return { ok: true };
   });
@@ -158,8 +158,8 @@ export function registerInstanceRoutes(app: FastifyInstance, ctx: AppContext): v
       const { id } = request.params as { id: string };
       const parsed = commandSchema.safeParse(request.body);
       if (!parsed.success) throw badRequest('A command string is required');
-      ctx.instances.sendCommand(id, parsed.data.command);
-      auditAction(request, 'instance.command', id, parsed.data.command.slice(0, 200));
+      await ctx.instances.sendCommand(id, parsed.data.command);
+      await auditAction(request, 'instance.command', id, parsed.data.command.slice(0, 200));
       return { ok: true };
     },
   );
@@ -168,7 +168,7 @@ export function registerInstanceRoutes(app: FastifyInstance, ctx: AppContext): v
 
   app.get('/api/instances/:id/logs', { preHandler: requireRole('viewer') }, async (request) => {
     const { id } = request.params as { id: string };
-    ctx.instances.getRow(id);
+    await ctx.instances.getRow(id);
     const live = ctx.processes.recentLines(id);
     if (live.length > 0) {
       return { lines: live, source: 'live' };
@@ -186,7 +186,7 @@ export function registerInstanceRoutes(app: FastifyInstance, ctx: AppContext): v
     { preHandler: requireRole('viewer') },
     async (request, reply) => {
       const { id } = request.params as { id: string };
-      ctx.instances.getRow(id);
+      await ctx.instances.getRow(id);
 
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream',

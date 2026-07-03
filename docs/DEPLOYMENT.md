@@ -67,6 +67,23 @@ sudo bash scripts/deploy.sh     # rebuilds, syncs /opt/gamedock, restarts servic
 `deploy.sh` never overwrites an existing `/opt/gamedock/.env`. Database migrations
 run automatically at service start either way.
 
+## Running in Docker
+
+An alternative to the bare-metal install above: `docker compose up -d` builds
+the image from the included `Dockerfile` and starts GameDock with its data
+and log directories on named volumes. You still need to set
+`GAMEDOCK_SESSION_SECRET` (the container refuses to start in production
+without one - see `docker-compose.yml` for exactly what to set and how to
+generate it) and create the first admin user via
+`docker compose exec gamedock node apps/api/dist/cli/index.js user:create-admin`.
+
+The tradeoff versus bare metal: game server processes run inside the
+container's network namespace, so each instance's ports need to be published
+through Docker (or the container run with `network_mode: host`) - there's no
+code difference, it's purely a networking/port-mapping question per game
+you host. Everything else (SteamCMD, backups, the update button, Minecraft's
+auto-provisioned JDKs) works the same either way.
+
 ## Service management
 
 ```bash

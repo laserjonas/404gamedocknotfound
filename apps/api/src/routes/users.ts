@@ -26,7 +26,8 @@ const patchUserSchema = z.object({
 
 export function registerUserRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get('/api/users', { preHandler: requireRole('admin') }, async () => {
-    return ctx.repos.users.list().map(toUserDto);
+    const rows = await ctx.repos.users.list();
+    return rows.map(toUserDto);
   });
 
   app.post('/api/users', { preHandler: requireRole('admin') }, async (request, reply) => {
@@ -36,12 +37,12 @@ export function registerUserRoutes(app: FastifyInstance, ctx: AppContext): void 
 
     const policyError = validatePasswordPolicy(password);
     if (policyError) throw badRequest(policyError);
-    if (ctx.repos.users.findByUsername(username)) {
+    if (await ctx.repos.users.findByUsername(username)) {
       throw conflict(`User "${username}" already exists`);
     }
 
-    const user = ctx.repos.users.create(username, await hashPassword(password), role);
-    ctx.audit({
+    const user = await ctx.repos.users.create(username, await hashPassword(password), role);
+    await ctx.audit({
       userId: request.auth!.user.id,
       username: request.auth!.user.username,
       action: 'user.create',
@@ -58,7 +59,7 @@ export function registerUserRoutes(app: FastifyInstance, ctx: AppContext): void 
     const parsed = patchUserSchema.safeParse(request.body);
     if (!parsed.success) throw badRequest(parsed.error.issues[0]?.message ?? 'Invalid input');
 
-    const user = ctx.repos.users.findById(id);
+    const user = await ctx.repos.users.findById(id);
     if (!user) throw notFound('User not found');
 
     const patch = parsed.data;
@@ -68,7 +69,7 @@ export function registerUserRoutes(app: FastifyInstance, ctx: AppContext): void 
     const demotingAdmin =
       user.role === 'admin' &&
       ((patch.role !== undefined && patch.role !== 'admin') || patch.disabled === true);
-    if (demotingAdmin && ctx.repos.users.countAdmins() <= 1) {
+    if (demotingAdmin && (await ctx.repos.users.countAdmins()) <= 1) {
       throw conflict('Cannot demote or disable the last admin account');
     }
 
@@ -78,7 +79,7 @@ export function registerUserRoutes(app: FastifyInstance, ctx: AppContext): void 
       if (policyError) throw badRequest(policyError);
       update.passwordHash = await hashPassword(patch.password);
       changes.push('password');
-      ctx.auth.logoutAllForUser(id);
+      await ctx.auth.logoutAllForUser(id);
     }
     if (patch.role !== undefined) {
       update.role = patch.role;
@@ -87,11 +88,11 @@ export function registerUserRoutes(app: FastifyInstance, ctx: AppContext): void 
     if (patch.disabled !== undefined) {
       update.disabled = patch.disabled;
       changes.push(`disabled=${patch.disabled}`);
-      if (patch.disabled) ctx.auth.logoutAllForUser(id);
+      if (patch.disabled) await ctx.auth.logoutAllForUser(id);
     }
 
-    ctx.repos.users.update(id, update);
-    ctx.audit({
+    await ctx.repos.users.update(id, update);
+    await ctx.audit({
       userId: request.auth!.user.id,
       username: request.auth!.user.username,
       action: 'user.update',
@@ -99,22 +100,22 @@ export function registerUserRoutes(app: FastifyInstance, ctx: AppContext): void 
       targetId: id,
       detail: `${user.username}: ${changes.join(', ')}`,
     });
-    return toUserDto(ctx.repos.users.findById(id)!);
+    return toUserDto((await ctx.repos.users.findById(id))!);
   });
 
   app.delete('/api/users/:id', { preHandler: requireRole('admin') }, async (request) => {
     const { id } = request.params as { id: string };
-    const user = ctx.repos.users.findById(id);
+    const user = await ctx.repos.users.findById(id);
     if (!user) throw notFound('User not found');
     if (user.id === request.auth!.user.id) {
       throw conflict('You cannot delete your own account');
     }
-    if (user.role === 'admin' && ctx.repos.users.countAdmins() <= 1) {
+    if (user.role === 'admin' && (await ctx.repos.users.countAdmins()) <= 1) {
       throw conflict('Cannot delete the last admin account');
     }
-    ctx.auth.logoutAllForUser(id);
-    ctx.repos.users.delete(id);
-    ctx.audit({
+    await ctx.auth.logoutAllForUser(id);
+    await ctx.repos.users.delete(id);
+    await ctx.audit({
       userId: request.auth!.user.id,
       username: request.auth!.user.username,
       action: 'user.delete',

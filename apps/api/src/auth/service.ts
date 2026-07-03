@@ -70,7 +70,7 @@ export class AuthService {
       throw unauthorized('Too many failed login attempts. Try again in a few minutes.');
     }
 
-    const user = this.users.findByUsername(username);
+    const user = await this.users.findByUsername(username);
     if (!user || user.disabled === 1) {
       await dummyVerify();
       this.throttle.recordFailure(throttleKey);
@@ -84,11 +84,11 @@ export class AuthService {
     }
 
     this.throttle.reset(throttleKey);
-    this.users.recordLogin(user.id);
+    await this.users.recordLogin(user.id);
 
     const sessionToken = randomBytes(32).toString('hex');
     const csrfToken = randomBytes(32).toString('hex');
-    this.sessions.create({
+    await this.sessions.create({
       userId: user.id,
       tokenHash: hashToken(sessionToken),
       csrfToken,
@@ -100,28 +100,28 @@ export class AuthService {
     return { user: toUserDto(user), sessionToken, csrfToken };
   }
 
-  validateSession(sessionToken: string): AuthenticatedSession | null {
-    const session = this.sessions.findByTokenHash(hashToken(sessionToken));
+  async validateSession(sessionToken: string): Promise<AuthenticatedSession | null> {
+    const session = await this.sessions.findByTokenHash(hashToken(sessionToken));
     if (!session) return null;
     if (new Date(session.expires_at).getTime() < Date.now()) {
-      this.sessions.deleteByTokenHash(session.token_hash);
+      await this.sessions.deleteByTokenHash(session.token_hash);
       return null;
     }
-    const user = this.users.findById(session.user_id);
+    const user = await this.users.findById(session.user_id);
     if (!user || user.disabled === 1) return null;
     return { user, session };
   }
 
-  logout(sessionToken: string): void {
-    this.sessions.deleteByTokenHash(hashToken(sessionToken));
+  async logout(sessionToken: string): Promise<void> {
+    await this.sessions.deleteByTokenHash(hashToken(sessionToken));
   }
 
-  logoutAllForUser(userId: string): void {
-    this.sessions.deleteForUser(userId);
+  async logoutAllForUser(userId: string): Promise<void> {
+    await this.sessions.deleteForUser(userId);
   }
 
-  cleanupExpired(): void {
-    this.sessions.deleteExpired();
+  async cleanupExpired(): Promise<void> {
+    await this.sessions.deleteExpired();
   }
 }
 

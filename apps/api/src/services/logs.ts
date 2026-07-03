@@ -39,8 +39,8 @@ export class LogService {
   ) {}
 
   /** Applies a previously-saved level, if any. Call once at startup before creating component child loggers. */
-  restoreLevel(): void {
-    const saved = this.settings.get(SETTINGS_KEY);
+  async restoreLevel(): Promise<void> {
+    const saved = await this.settings.get(SETTINGS_KEY);
     if (saved && VALID_LEVELS.includes(saved as LogLevel)) {
       this.registry.setLevel(saved);
     }
@@ -50,12 +50,12 @@ export class LogService {
     return this.registry.currentLevel() as LogLevel;
   }
 
-  setLevel(level: string): void {
+  async setLevel(level: string): Promise<void> {
     if (!VALID_LEVELS.includes(level as LogLevel)) {
       throw badRequest(`Invalid log level "${level}". Must be one of: ${VALID_LEVELS.join(', ')}`);
     }
     this.registry.setLevel(level);
-    this.settings.set(SETTINGS_KEY, level);
+    await this.settings.set(SETTINGS_KEY, level);
   }
 
   recent(limit: number, level?: LogLevel, component?: string): LogEntryDto[] {

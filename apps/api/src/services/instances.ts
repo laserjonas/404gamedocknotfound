@@ -9,6 +9,7 @@ import type {
 } from '@gamedock/shared';
 import type { GameTemplate } from '@gamedock/game-templates';
 import type { InstanceRepository, InstanceRow } from '../db/repositories/instances.js';
+import type { JobRow } from '../db/repositories/jobs.js';
 import type { JobService } from './jobs.js';
 import type { TemplateService } from './templates.js';
 import type { ProcessManager } from './processManager.js';
@@ -50,8 +51,8 @@ export class InstanceService {
     return join(this.config.instanceDir, instanceId);
   }
 
-  getRow(id: string): InstanceRow {
-    const row = this.repo.findById(id);
+  async getRow(id: string): Promise<InstanceRow> {
+    const row = await this.repo.findById(id);
     if (!row) throw notFound('Server instance not found');
     return row;
   }
@@ -74,6 +75,12 @@ export class InstanceService {
   async toDto(row: InstanceRow, includeUsage = false): Promise<InstanceDto> {
     const template = this.templateOf(row);
     const status = this.effectiveStatus(row);
+    const [ports, envVars, variables, usage] = await Promise.all([
+      this.repo.listPorts(row.id),
+      this.repo.getEnvVars(row.id),
+      this.repo.getVariables(row.id),
+      includeUsage ? this.processes.usage(row.id) : Promise.resolve(null),
+    ]);
     return {
       id: row.id,
       name: row.name,
@@ -86,16 +93,16 @@ export class InstanceService {
       updatedAt: row.updated_at,
       startExecutable: row.start_executable,
       startArgs: row.start_args ? (JSON.parse(row.start_args) as string[]) : null,
-      ports: this.repo.listPorts(row.id).map((p) => ({
+      ports: ports.map((p) => ({
         id: p.id,
         name: p.name,
         port: p.port,
         protocol: p.protocol,
       })),
-      envVars: this.repo.getEnvVars(row.id),
-      variables: this.redactSecretVariables(template, this.repo.getVariables(row.id)),
+      envVars,
+      variables: this.redactSecretVariables(template, variables),
       pid: this.processes.pidOf(row.id),
-      usage: includeUsage ? await this.processes.usage(row.id) : null,
+      usage,
       crashRestart: row.crash_restart === 1,
       backupIntervalHours: row.backup_interval_hours,
       backupRetentionCount: row.backup_retention_count,
@@ -116,7 +123,7 @@ export class InstanceService {
   }
 
   async listDtos(): Promise<InstanceDto[]> {
-    const rows = this.repo.list();
+    const rows = await this.repo.list();
     return Promise.all(rows.map((row) => this.toDto(row)));
   }
 
@@ -126,7 +133,7 @@ export class InstanceService {
     if (!INSTANCE_NAME_RE.test(request.name)) {
       throw badRequest('Instance name must be 2-64 characters (letters, digits, spaces, ._- only)');
     }
-    if (this.repo.findByName(request.name)) {
+    if (await this.repo.findByName(request.name)) {
       throw conflict(`An instance named "${request.name}" already exists`);
     }
     const template = this.templates.get(request.templateId);
@@ -136,32 +143,32 @@ export class InstanceService {
 
     const variables = resolveVariableValues(template, request.variables ?? {});
 
-    const row = this.repo.create({
+    const row = await this.repo.create({
       name: request.name,
       templateId: template.id,
       templateDefinition: JSON.stringify(template),
     });
 
-    this.repo.replaceVariables(row.id, variables);
+    await this.repo.replaceVariables(row.id, variables);
     const ports =
       request.ports && request.ports.length > 0
         ? request.ports
         : template.ports.map((p) => ({ name: p.name, port: p.port, protocol: p.protocol }));
-    this.repo.replacePorts(row.id, ports);
+    await this.repo.replacePorts(row.id, ports);
 
     await mkdir(this.instanceDir(row.id), { recursive: true });
     return this.getRow(row.id);
   }
 
   async update(id: string, request: UpdateInstanceRequest): Promise<InstanceRow> {
-    const row = this.getRow(id);
+    const row = await this.getRow(id);
     const template = this.templateOf(row);
 
     if (request.name !== undefined && request.name !== row.name) {
       if (!INSTANCE_NAME_RE.test(request.name)) {
         throw badRequest('Invalid instance name');
       }
-      const existing = this.repo.findByName(request.name);
+      const existing = await this.repo.findByName(request.name);
       if (existing && existing.id !== id) {
         throw conflict(`An instance named "${request.name}" already exists`);
       }
@@ -169,7 +176,7 @@ export class InstanceService {
 
     if (request.variables !== undefined) {
       // Secret placeholder values (bullet chars) mean "keep the stored value".
-      const current = this.repo.getVariables(id);
+      const current = await this.repo.getVariables(id);
       const merged: Record<string, string> = { ...request.variables };
       for (const variable of template.variables) {
         if (variable.secret && merged[variable.key]?.includes('••')) {
@@ -177,7 +184,7 @@ export class InstanceService {
         }
       }
       const resolved = resolveVariableValues(template, merged);
-      this.repo.replaceVariables(id, resolved);
+      await this.repo.replaceVariables(id, resolved);
     }
 
     if (request.envVars !== undefined) {
@@ -192,14 +199,14 @@ export class InstanceService {
           throw badRequest('Environment variables must not use the GAMEDOCK_ prefix');
         }
       }
-      this.repo.replaceEnvVars(id, request.envVars);
+      await this.repo.replaceEnvVars(id, request.envVars);
     }
 
     if (request.ports !== undefined) {
-      this.repo.replacePorts(id, request.ports);
+      await this.repo.replacePorts(id, request.ports);
     }
 
-    this.repo.update(id, {
+    await this.repo.update(id, {
       ...(request.name !== undefined ? { name: request.name } : {}),
       ...(request.autoStart !== undefined ? { autoStart: request.autoStart } : {}),
       ...(request.startExecutable !== undefined
@@ -221,8 +228,8 @@ export class InstanceService {
   }
 
   /** Deleting removes the process, files, backups and DB rows. Runs as a job. */
-  enqueueDelete(id: string, requestedBy: string | null) {
-    const row = this.getRow(id);
+  async enqueueDelete(id: string, requestedBy: string | null): Promise<JobRow> {
+    const row = await this.getRow(id);
     if (this.processes.isActive(id)) {
       throw conflict('Stop the server before deleting it');
     }
@@ -241,15 +248,15 @@ export class InstanceService {
         handle.log('Removing backups...');
         await rm(backupDir, { recursive: true, force: true });
       }
-      this.repo.delete(id);
+      await this.repo.delete(id);
       handle.log('Instance deleted');
     });
   }
 
   // --- install / update ------------------------------------------------------
 
-  enqueueInstall(id: string, requestedBy: string | null, isUpdate: boolean) {
-    const row = this.getRow(id);
+  async enqueueInstall(id: string, requestedBy: string | null, isUpdate: boolean): Promise<JobRow> {
+    const row = await this.getRow(id);
     const template = this.templateOf(row);
     if (this.processes.isActive(id)) {
       throw conflict('Stop the server before installing or updating');
@@ -261,13 +268,13 @@ export class InstanceService {
     }
 
     return this.jobs.enqueue(isUpdate ? 'update' : 'install', id, requestedBy, async (handle) => {
-      this.repo.update(id, { status: 'installing' });
+      await this.repo.update(id, { status: 'installing' });
       try {
         const dir = this.instanceDir(id);
         await mkdir(dir, { recursive: true });
         let resolvedJavaBin: string | undefined;
         const variables = {
-          ...this.repo.getVariables(id),
+          ...(await this.repo.getVariables(id)),
           ...builtinVariables({ instanceDir: dir, instanceId: id, instanceName: row.name }),
         };
 
@@ -325,7 +332,7 @@ export class InstanceService {
         const executable = substitutePlaceholders(template.start.executable, variables);
         await markExecutable(dir, executable);
 
-        this.repo.update(id, {
+        await this.repo.update(id, {
           installed: true,
           status: 'stopped',
           ...(resolvedJavaBin !== undefined ? { startExecutable: resolvedJavaBin } : {}),
@@ -333,9 +340,9 @@ export class InstanceService {
         handle.setProgress(100, 'done');
         handle.log(isUpdate ? 'Update finished' : 'Install finished');
       } catch (err) {
-        const current = this.repo.findById(id);
+        const current = await this.repo.findById(id);
         if (current) {
-          this.repo.update(id, {
+          await this.repo.update(id, {
             status: current.installed === 1 ? 'stopped' : 'not_installed',
           });
         }
@@ -346,23 +353,27 @@ export class InstanceService {
 
   // --- process control ---------------------------------------------------------
 
-  start(id: string): void {
-    const row = this.getRow(id);
+  async start(id: string): Promise<void> {
+    const row = await this.getRow(id);
     if (row.installed !== 1) {
       throw conflict('Install the server files first');
     }
-    if (this.jobs.hasActiveJob(id)) {
+    if (await this.jobs.hasActiveJob(id)) {
       throw conflict('An install/backup operation is running for this server');
     }
     const template = this.templateOf(row);
     const dir = this.instanceDir(id);
+    const [variables, instanceEnv] = await Promise.all([
+      this.repo.getVariables(id),
+      this.repo.getEnvVars(id),
+    ]);
     const command = buildStartCommand({
       template,
       instanceDir: dir,
       instanceId: id,
       instanceName: row.name,
-      variables: this.repo.getVariables(id),
-      instanceEnv: this.repo.getEnvVars(id),
+      variables,
+      instanceEnv,
       overrideExecutable: row.start_executable,
       overrideArgs: row.start_args ? (JSON.parse(row.start_args) as string[]) : null,
     });
@@ -377,37 +388,37 @@ export class InstanceService {
   }
 
   async stop(id: string): Promise<void> {
-    this.getRow(id);
+    await this.getRow(id);
     await this.processes.stop(id);
   }
 
   async restart(id: string): Promise<void> {
-    const row = this.getRow(id);
+    const row = await this.getRow(id);
     if (this.processes.isActive(row.id)) {
       await this.processes.stop(row.id);
     }
-    this.start(id);
+    await this.start(id);
   }
 
   async kill(id: string): Promise<void> {
-    this.getRow(id);
+    await this.getRow(id);
     await this.processes.stop(id, { force: true });
   }
 
-  sendCommand(id: string, command: string): void {
-    this.getRow(id);
+  async sendCommand(id: string, command: string): Promise<void> {
+    await this.getRow(id);
     this.processes.sendCommand(id, command);
   }
 
   // --- backups -----------------------------------------------------------------
 
-  enqueueBackup(
+  async enqueueBackup(
     id: string,
     requestedBy: string | null,
     note: string | null,
     excludePaths: string[],
-  ) {
-    const row = this.getRow(id);
+  ): Promise<JobRow> {
+    const row = await this.getRow(id);
     return this.jobs.enqueue('backup', id, requestedBy, async (handle) => {
       await this.backups.create({
         instanceId: id,
@@ -418,9 +429,10 @@ export class InstanceService {
       });
       handle.log(`Backup of "${row.name}" finished`);
 
-      const retention = this.repo.findById(id)?.backup_retention_count;
+      const current = await this.repo.findById(id);
+      const retention = current?.backup_retention_count;
       if (retention && retention > 0) {
-        const excess = this.backupRepo.listForInstance(id).slice(retention);
+        const excess = (await this.backupRepo.listForInstance(id)).slice(retention);
         for (const old of excess) {
           await this.backups.delete(old);
           handle.log(`Pruned old backup ${old.file_name} (keeping last ${retention})`);
@@ -430,17 +442,18 @@ export class InstanceService {
   }
 
   /** Enqueues a backup for every installed instance whose schedule is due. Called periodically. */
-  runDueScheduledBackups(): void {
-    for (const row of this.repo.list()) {
+  async runDueScheduledBackups(): Promise<void> {
+    for (const row of await this.repo.list()) {
       if (!row.backup_interval_hours || row.installed !== 1) continue;
-      if (this.jobs.hasActiveJob(row.id)) continue;
-      const last = this.backupRepo.listForInstance(row.id)[0];
+      if (await this.jobs.hasActiveJob(row.id)) continue;
+      const backups = await this.backupRepo.listForInstance(row.id);
+      const last = backups[0];
       const dueAt = last
         ? new Date(last.created_at).getTime() + row.backup_interval_hours * 60 * 60 * 1000
         : 0;
       if (Date.now() < dueAt) continue;
       try {
-        this.enqueueBackup(row.id, null, 'Scheduled backup', []);
+        await this.enqueueBackup(row.id, null, 'Scheduled backup', []);
       } catch (err) {
         this.logger.warn(
           { instanceId: row.id, err: (err as Error).message },
@@ -450,12 +463,12 @@ export class InstanceService {
     }
   }
 
-  enqueueRestore(id: string, backupId: string, requestedBy: string | null) {
-    const row = this.getRow(id);
+  async enqueueRestore(id: string, backupId: string, requestedBy: string | null): Promise<JobRow> {
+    const row = await this.getRow(id);
     if (this.processes.isActive(id)) {
       throw conflict('Stop the server before restoring a backup');
     }
-    const backup = this.backupRepo.findById(backupId);
+    const backup = await this.backupRepo.findById(backupId);
     if (!backup || backup.instance_id !== id) {
       throw notFound('Backup not found for this instance');
     }
@@ -465,7 +478,7 @@ export class InstanceService {
         instanceDir: this.instanceDir(id),
         onLog: (line) => handle.log(line),
       });
-      this.repo.update(id, { installed: true, status: 'stopped' });
+      await this.repo.update(id, { installed: true, status: 'stopped' });
       handle.log(`Restore of "${row.name}" finished`);
     });
   }
@@ -473,17 +486,19 @@ export class InstanceService {
   // --- boot ---------------------------------------------------------------------
 
   async autoStartAll(): Promise<void> {
-    for (const row of this.repo.list()) {
+    for (const row of await this.repo.list()) {
       // Clear stale statuses from a previous daemon run.
       if (['running', 'starting', 'stopping', 'installing'].includes(row.status)) {
-        this.repo.update(row.id, { status: row.installed === 1 ? 'stopped' : 'not_installed' });
+        await this.repo.update(row.id, {
+          status: row.installed === 1 ? 'stopped' : 'not_installed',
+        });
       }
     }
-    for (const row of this.repo.list()) {
+    for (const row of await this.repo.list()) {
       if (row.auto_start === 1 && row.installed === 1) {
         try {
           this.logger.info({ instance: row.name }, 'auto-starting instance');
-          this.start(row.id);
+          await this.start(row.id);
         } catch (err) {
           this.logger.warn(
             { instance: row.name, err: (err as Error).message },

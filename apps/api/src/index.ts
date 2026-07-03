@@ -15,14 +15,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const ctx = createContext(config, logger, registry, logBuffer);
+  const ctx = await createContext(config, logger, registry, logBuffer);
 
   // Jobs cannot survive restarts; mark leftovers as failed.
-  ctx.jobs.recoverAfterRestart();
+  await ctx.jobs.recoverAfterRestart();
 
   const app = await buildApp(ctx);
 
-  if (ctx.repos.users.count() === 0) {
+  if ((await ctx.repos.users.count()) === 0) {
     logger.warn('No users exist yet. Create the first admin with: pnpm gamedock user:create-admin');
   }
 

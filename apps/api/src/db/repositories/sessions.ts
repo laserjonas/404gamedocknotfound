@@ -16,16 +16,16 @@ export interface SessionRow {
 export class SessionRepository {
   constructor(private db: DatabaseClient) {}
 
-  create(params: {
+  async create(params: {
     userId: string;
     tokenHash: string;
     csrfToken: string;
     expiresAt: string;
     ip?: string;
     userAgent?: string;
-  }): SessionRow {
+  }): Promise<SessionRow> {
     const id = randomUUID();
-    this.db.run(
+    await this.db.run(
       `INSERT INTO sessions (id, user_id, token_hash, csrf_token, created_at, expires_at, ip, user_agent)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
@@ -39,22 +39,22 @@ export class SessionRepository {
         params.userAgent?.slice(0, 256) ?? null,
       ],
     );
-    return this.db.get<SessionRow>('SELECT * FROM sessions WHERE id = ?', [id])!;
+    return (await this.db.get<SessionRow>('SELECT * FROM sessions WHERE id = ?', [id]))!;
   }
 
-  findByTokenHash(tokenHash: string): SessionRow | undefined {
+  async findByTokenHash(tokenHash: string): Promise<SessionRow | undefined> {
     return this.db.get<SessionRow>('SELECT * FROM sessions WHERE token_hash = ?', [tokenHash]);
   }
 
-  deleteByTokenHash(tokenHash: string): void {
-    this.db.run('DELETE FROM sessions WHERE token_hash = ?', [tokenHash]);
+  async deleteByTokenHash(tokenHash: string): Promise<void> {
+    await this.db.run('DELETE FROM sessions WHERE token_hash = ?', [tokenHash]);
   }
 
-  deleteForUser(userId: string): void {
-    this.db.run('DELETE FROM sessions WHERE user_id = ?', [userId]);
+  async deleteForUser(userId: string): Promise<void> {
+    await this.db.run('DELETE FROM sessions WHERE user_id = ?', [userId]);
   }
 
-  deleteExpired(): number {
-    return this.db.run('DELETE FROM sessions WHERE expires_at < ?', [nowIso()]).changes;
+  async deleteExpired(): Promise<number> {
+    return (await this.db.run('DELETE FROM sessions WHERE expires_at < ?', [nowIso()])).changes;
   }
 }

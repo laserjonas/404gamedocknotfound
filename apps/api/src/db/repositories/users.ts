@@ -29,45 +29,45 @@ export function toUserDto(row: UserRow): UserDto {
 export class UserRepository {
   constructor(private db: DatabaseClient) {}
 
-  findById(id: string): UserRow | undefined {
+  async findById(id: string): Promise<UserRow | undefined> {
     return this.db.get<UserRow>('SELECT * FROM users WHERE id = ?', [id]);
   }
 
-  findByUsername(username: string): UserRow | undefined {
+  async findByUsername(username: string): Promise<UserRow | undefined> {
     return this.db.get<UserRow>('SELECT * FROM users WHERE username = ?', [username]);
   }
 
-  list(): UserRow[] {
+  async list(): Promise<UserRow[]> {
     return this.db.all<UserRow>('SELECT * FROM users ORDER BY username');
   }
 
-  count(): number {
-    const row = this.db.get<{ c: number }>('SELECT COUNT(*) AS c FROM users');
+  async count(): Promise<number> {
+    const row = await this.db.get<{ c: number }>('SELECT COUNT(*) AS c FROM users');
     return row?.c ?? 0;
   }
 
-  countAdmins(): number {
-    const row = this.db.get<{ c: number }>(
+  async countAdmins(): Promise<number> {
+    const row = await this.db.get<{ c: number }>(
       "SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND disabled = 0",
     );
     return row?.c ?? 0;
   }
 
-  create(username: string, passwordHash: string, role: Role): UserRow {
+  async create(username: string, passwordHash: string, role: Role): Promise<UserRow> {
     const now = nowIso();
     const id = randomUUID();
-    this.db.run(
+    await this.db.run(
       `INSERT INTO users (id, username, password_hash, role, disabled, created_at, updated_at)
        VALUES (?, ?, ?, ?, 0, ?, ?)`,
       [id, username, passwordHash, role, now, now],
     );
-    return this.findById(id)!;
+    return (await this.findById(id))!;
   }
 
-  update(
+  async update(
     id: string,
     patch: Partial<{ username: string; passwordHash: string; role: Role; disabled: boolean }>,
-  ): void {
+  ): Promise<void> {
     const sets: string[] = [];
     const params: unknown[] = [];
     if (patch.username !== undefined) {
@@ -89,14 +89,14 @@ export class UserRepository {
     if (sets.length === 0) return;
     sets.push('updated_at = ?');
     params.push(nowIso(), id);
-    this.db.run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, params);
+    await this.db.run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, params);
   }
 
-  recordLogin(id: string): void {
-    this.db.run('UPDATE users SET last_login_at = ? WHERE id = ?', [nowIso(), id]);
+  async recordLogin(id: string): Promise<void> {
+    await this.db.run('UPDATE users SET last_login_at = ? WHERE id = ?', [nowIso(), id]);
   }
 
-  delete(id: string): void {
-    this.db.run('DELETE FROM users WHERE id = ?', [id]);
+  async delete(id: string): Promise<void> {
+    await this.db.run('DELETE FROM users WHERE id = ?', [id]);
   }
 }

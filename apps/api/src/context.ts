@@ -61,18 +61,18 @@ export interface AppContext {
     targetType?: string;
     targetId?: string;
     detail?: string;
-  }): void;
+  }): Promise<void>;
   shutdown(): Promise<void>;
 }
 
-export function createContext(
+export async function createContext(
   config: AppConfig,
   logger: Logger,
   logRegistry: LoggerRegistry,
   logBuffer: LogRingBuffer,
-): AppContext {
+): Promise<AppContext> {
   const db = createDatabase(config.databaseUrl, config.dataDir);
-  runMigrations(db, logger);
+  await runMigrations(db, logger);
 
   const repos = {
     users: new UserRepository(db),
@@ -86,8 +86,8 @@ export function createContext(
 
   const events = new EventHub();
 
-  const audit: AppContext['audit'] = (entry) => {
-    const row = repos.audit.add(entry);
+  const audit: AppContext['audit'] = async (entry) => {
+    const row = await repos.audit.add(entry);
     events.publish({ kind: 'audit', entry: toAuditDto(row) });
   };
 
@@ -95,31 +95,31 @@ export function createContext(
   // loggers, so they all start at the right verbosity (pino children
   // snapshot the parent's level once at creation, see logger.ts).
   const logs = new LogService(logBuffer, logRegistry, repos.settings);
-  logs.restoreLevel();
+  await logs.restoreLevel();
   const componentLogger: AppContext['componentLogger'] = (name) =>
     logRegistry.register(logger.child({ component: name }));
 
   const auth = new AuthService(repos.users, repos.sessions);
   const templates = new TemplateService(db, config.dataDir, componentLogger('templates'));
-  templates.reload();
+  await templates.reload();
 
   const processes = new ProcessManager(
     config.logDir,
     events,
     {
-      persistStatus: (instanceId, status, pid) => {
+      persistStatus: async (instanceId, status, pid) => {
         // The instance row may already be gone when deletion races a stop.
-        if (repos.instances.findById(instanceId)) {
-          repos.instances.update(instanceId, { status, lastPid: pid });
+        if (await repos.instances.findById(instanceId)) {
+          await repos.instances.update(instanceId, { status, lastPid: pid });
         }
       },
-      recordEvent: (action, instanceId, detail) => {
-        const name = repos.instances.findById(instanceId)?.name ?? instanceId;
-        audit({
+      recordEvent: async (action, instanceId, detail) => {
+        const row = await repos.instances.findById(instanceId);
+        await audit({
           action,
           targetType: 'instance',
           targetId: instanceId,
-          detail: `${name}: ${detail}`,
+          detail: `${row?.name ?? instanceId}: ${detail}`,
         });
       },
     },
@@ -149,56 +149,75 @@ export function createContext(
   });
 
   // Periodic session cleanup.
-  const sessionCleanup = setInterval(() => auth.cleanupExpired(), 60 * 60 * 1000);
+  const sessionCleanup = setInterval(
+    () => {
+      void auth
+        .cleanupExpired()
+        .catch((err) => logger.warn({ err: (err as Error).message }, 'session cleanup failed'));
+    },
+    60 * 60 * 1000,
+  );
   sessionCleanup.unref();
 
   // Scheduled backups: enqueue a backup for any installed instance whose
   // configured interval has elapsed since its last backup.
-  const backupScheduler = setInterval(
-    () => instances.runDueScheduledBackups(),
-    BACKUP_SCHEDULER_INTERVAL_MS,
-  );
+  const runBackupScan = () => {
+    void instances
+      .runDueScheduledBackups()
+      .catch((err) => logger.warn({ err: (err as Error).message }, 'scheduled backup scan failed'));
+  };
+  const backupScheduler = setInterval(runBackupScan, BACKUP_SCHEDULER_INTERVAL_MS);
   backupScheduler.unref();
-  queueMicrotask(() => instances.runDueScheduledBackups());
+  queueMicrotask(runBackupScan);
 
   // Crash auto-restart: opt-in per instance, capped to avoid restart loops
   // on a server that crashes immediately every time (bad config, corrupt world).
   const crashRestartTracker = new CrashRestartTracker();
-  const unsubscribeCrashRestart = events.onEvent((event) => {
-    if (event.kind !== 'instance_status' || event.status !== 'crashed') return;
-    const row = repos.instances.findById(event.instanceId);
+  const handleCrashed = async (instanceId: string): Promise<void> => {
+    const row = await repos.instances.findById(instanceId);
     if (!row || row.crash_restart !== 1 || row.installed !== 1) return;
 
-    const allowed = crashRestartTracker.recordAndCheck(event.instanceId, CRASH_RESTART_LIMITS);
+    const allowed = crashRestartTracker.recordAndCheck(instanceId, CRASH_RESTART_LIMITS);
     if (!allowed) {
-      logger.warn({ instanceId: event.instanceId }, 'crash-restart limit reached, giving up');
-      audit({
+      logger.warn({ instanceId }, 'crash-restart limit reached, giving up');
+      await audit({
         action: 'instance.crash_restart_giving_up',
         targetType: 'instance',
-        targetId: event.instanceId,
+        targetId: instanceId,
         detail: `${row.name}: crashed repeatedly, pausing automatic restart`,
       });
       return;
     }
 
     const timer = setTimeout(() => {
-      if (processes.isActive(event.instanceId)) return;
-      try {
-        instances.start(event.instanceId);
-        audit({
-          action: 'instance.auto_restarted',
-          targetType: 'instance',
-          targetId: event.instanceId,
-          detail: row.name,
-        });
-      } catch (err) {
-        logger.warn(
-          { instanceId: event.instanceId, err: (err as Error).message },
-          'automatic restart after crash failed',
-        );
-      }
+      void (async () => {
+        if (processes.isActive(instanceId)) return;
+        try {
+          await instances.start(instanceId);
+          await audit({
+            action: 'instance.auto_restarted',
+            targetType: 'instance',
+            targetId: instanceId,
+            detail: row.name,
+          });
+        } catch (err) {
+          logger.warn(
+            { instanceId, err: (err as Error).message },
+            'automatic restart after crash failed',
+          );
+        }
+      })();
     }, CRASH_RESTART_DELAY_MS);
     timer.unref();
+  };
+  const unsubscribeCrashRestart = events.onEvent((event) => {
+    if (event.kind !== 'instance_status' || event.status !== 'crashed') return;
+    void handleCrashed(event.instanceId).catch((err) => {
+      logger.warn(
+        { instanceId: event.instanceId, err: (err as Error).message },
+        'crash-restart handling failed',
+      );
+    });
   });
 
   return {
@@ -224,7 +243,7 @@ export function createContext(
       clearInterval(backupScheduler);
       unsubscribeCrashRestart();
       await processes.shutdownAll();
-      db.close();
+      await db.close();
     },
   };
 }
