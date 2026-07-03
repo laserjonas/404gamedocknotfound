@@ -26,7 +26,8 @@ Monorepo: pnpm workspaces + TypeScript, Node >= 20.
   creation — safe to re-run, see below), `install-steamcmd.sh` (also called
   automatically from `install.sh` unless declined), `systemd/gamedock.service`.
 - `docs/` — INSTALL_DEBIAN.md, DEPLOYMENT.md, API.md, GAME_TEMPLATES.md,
-  SECURITY.md. Keep these in sync with routes/config/templates when they change.
+  SECURITY.md, ROADMAP.md (backlog of larger not-yet-scheduled items). Keep
+  these in sync with routes/config/templates when they change.
 
 ## Commands
 

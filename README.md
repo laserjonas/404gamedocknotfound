@@ -81,6 +81,7 @@ exits, the panel is up and running under systemd. Safe to re-run any time
 - [Security notes](docs/SECURITY.md)
 - [Game templates](docs/GAME_TEMPLATES.md)
 - [REST API](docs/API.md)
+- [Roadmap](docs/ROADMAP.md)
 
 ## CLI
 
