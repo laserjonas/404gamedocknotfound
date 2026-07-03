@@ -106,6 +106,16 @@ These are always available in placeholders, in addition to template variables:
 - Variable values are validated: control characters are rejected, `pattern` is
   anchored (`^...$`) and enforced, `required` values must be non-empty.
 - `stop.method: "command"` requires `console.supportsInput: true`.
+- **Ports are auto-assigned at creation**: if any of the template's default ports
+  is already claimed by another instance, the whole port set is shifted by one
+  common offset to the first free range (preserving relations like "query port =
+  game port + 1"), and any variable whose key contains `PORT` moves with it so
+  the startup command follows. This is why port-carrying variables should be
+  named `GAME_PORT`/`QUERY_PORT`/etc. with a `default` matching the corresponding
+  `ports` entry — that link is how the panel knows which variable steers which
+  port. Templates without port variables (e.g. modpack-based ones) keep their
+  literal defaults and can still collide; prefer wiring a variable when the game
+  supports it.
 - Each instance stores a **snapshot** of its template at creation time, so editing
   a template file affects only newly created instances.
 - Finding Steam app ids: search the game on <https://steamdb.info> and use the

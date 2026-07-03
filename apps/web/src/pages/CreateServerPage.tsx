@@ -110,6 +110,9 @@ export function CreateServerPage() {
               {template.ports.map((p) => `${p.name}: ${p.port}/${p.protocol}`).join(' · ') ||
                 'none'}
             </div>
+            <div className="field-hint">
+              Automatically moved to the next free ports if another server already uses them.
+            </div>
           </div>
 
           {error && <div className="error-text">{error}</div>}

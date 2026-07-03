@@ -59,9 +59,9 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 | Method | Path                   | Role     | Description                                                                                                                                                               |
 | ------ | ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/instances`           | viewer   | List instances (live status, ports, env)                                                                                                                                  |
-| POST   | `/instances`           | admin    | Body `{name, templateId, variables?, ports?}`                                                                                                                             |
+| POST   | `/instances`           | admin    | Body `{name, templateId, variables?, ports?}` - without `ports`, free ports are auto-assigned (defaults shifted past ports in use); explicit `ports` are used verbatim    |
 | GET    | `/instances/:id`       | viewer   | Detail incl. CPU/RAM usage while running                                                                                                                                  |
-| POST   | `/instances/:id/clone` | admin    | Body `{name}` - copies template snapshot, variables, env vars, ports and startup/backup settings into a new (not-yet-installed) instance                                  |
+| POST   | `/instances/:id/clone` | admin    | Body `{name}` - copies template snapshot, variables, env vars and startup/backup settings into a new (not-yet-installed) instance; ports are re-assigned to a free range  |
 | PATCH  | `/instances/:id`       | operator | Body `{name?, autoStart?, crashRestart?, backupIntervalHours?, backupRetentionCount?, restartIntervalHours?, startExecutable?, startArgs?, envVars?, variables?, ports?}` |
 | DELETE | `/instances/:id`       | admin    | Deletes files + backups; returns `{job}`                                                                                                                                  |
 

@@ -35,9 +35,17 @@ import {
   substitutePlaceholders,
 } from './variables.js';
 import { resolveSafePath } from '../utils/safePath.js';
+import { isPortVariableKey, planInstancePorts } from './ports.js';
 import { badRequest, conflict, notFound } from '../errors.js';
 
 const INSTANCE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 _.-]{1,63}$/;
+
+/** The template variables that carry a port number (GAME_PORT, QUERY_PORT, ...). */
+function portVariablesOf(template: GameTemplate): { key: string; default: string }[] {
+  return template.variables
+    .filter((v) => isPortVariableKey(v.key))
+    .map((v) => ({ key: v.key, default: v.default }));
+}
 
 export class InstanceService {
   constructor(
@@ -176,7 +184,28 @@ export class InstanceService {
       throw badRequest(`Template "${template.id}" does not support Linux`);
     }
 
-    const variables = resolveVariableValues(template, request.variables ?? {});
+    let variables = resolveVariableValues(template, request.variables ?? {});
+
+    // Explicit ports in the request are honored verbatim; otherwise shift the
+    // template's defaults past ports other instances already claim, so a
+    // second server of the same game doesn't fight over the same port.
+    let ports: {
+      name: string;
+      port: number;
+      protocol: (typeof template.ports)[number]['protocol'];
+    }[];
+    if (request.ports && request.ports.length > 0) {
+      ports = request.ports;
+    } else {
+      const plan = planInstancePorts({
+        ports: template.ports.map((p) => ({ name: p.name, port: p.port, protocol: p.protocol })),
+        variables,
+        portVariables: portVariablesOf(template),
+        usedPorts: new Set(await this.repo.listAllUsedPorts()),
+      });
+      ports = plan.ports;
+      variables = plan.variables;
+    }
 
     const row = await this.repo.create({
       name: request.name,
@@ -185,10 +214,6 @@ export class InstanceService {
     });
 
     await this.repo.replaceVariables(row.id, variables);
-    const ports =
-      request.ports && request.ports.length > 0
-        ? request.ports
-        : template.ports.map((p) => ({ name: p.name, port: p.port, protocol: p.protocol }));
     await this.repo.replacePorts(row.id, ports);
 
     await this.provisionInstanceDirectory(row.id);
@@ -232,18 +257,24 @@ export class InstanceService {
       this.repo.listPorts(source.id),
     ]);
 
+    // The source's own ports are in the used set, so the clone always lands
+    // on a free range instead of colliding with the instance it came from.
+    const plan = planInstancePorts({
+      ports: ports.map((p) => ({ name: p.name, port: p.port, protocol: p.protocol })),
+      variables,
+      portVariables: portVariablesOf(this.templateOf(source)),
+      usedPorts: new Set(await this.repo.listAllUsedPorts()),
+    });
+
     const row = await this.repo.create({
       name: newName,
       templateId: source.template_id,
       templateDefinition: source.template_definition,
     });
 
-    await this.repo.replaceVariables(row.id, variables);
+    await this.repo.replaceVariables(row.id, plan.variables);
     await this.repo.replaceEnvVars(row.id, envVars);
-    await this.repo.replacePorts(
-      row.id,
-      ports.map((p) => ({ name: p.name, port: p.port, protocol: p.protocol })),
-    );
+    await this.repo.replacePorts(row.id, plan.ports);
     await this.repo.update(row.id, {
       autoStart: source.auto_start === 1,
       crashRestart: source.crash_restart === 1,

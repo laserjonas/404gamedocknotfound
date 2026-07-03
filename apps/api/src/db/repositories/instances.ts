@@ -157,6 +157,12 @@ export class InstanceRepository {
     return map;
   }
 
+  /** Every port number claimed by any instance - for allocating collision-free defaults. */
+  async listAllUsedPorts(): Promise<number[]> {
+    const rows = await this.db.all<{ port: number }>('SELECT DISTINCT port FROM instance_ports');
+    return rows.map((r) => r.port);
+  }
+
   async replacePorts(
     instanceId: string,
     ports: { name: string; port: number; protocol: PortProtocol }[],
