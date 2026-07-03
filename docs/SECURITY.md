@@ -162,6 +162,16 @@ automatically a lockout the way losing a TOTP device is - but if every
 registered passkey is lost, the same admin-reset pattern as TOTP applies
 (Users page → Reset passkeys, or `PATCH /api/users/:id {"resetPasskeys": true}`).
 
+**`GAMEDOCK_PUBLIC_ORIGIN` must be a real hostname, not a bare IP address.**
+This is a hard limitation of the WebAuthn spec, not a GameDock restriction:
+a Relying Party ID must be a domain name (`localhost` is special-cased for
+local dev); browsers reject IP addresses outright with an "invalid domain"
+error, even over HTTPS with a valid certificate. If your GameDock instance
+is only reachable by IP, give it a hostname either via real DNS or a
+`/etc/hosts` entry on every client that needs to use passkeys (self-signed
+certs can include the hostname as a SAN so the rest of the site keeps
+working over that same name).
+
 ## What you must do
 
 1. **Never expose port 8340 directly.** Bind to `127.0.0.1` (default) and put
