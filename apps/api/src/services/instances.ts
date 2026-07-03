@@ -485,17 +485,62 @@ export class InstanceService {
 
   // --- boot ---------------------------------------------------------------------
 
+  /**
+   * Checks whether a previously-running instance's process survived this
+   * restart (game servers run detached, see processManager.ts) and, if so,
+   * re-registers it instead of treating it as stopped.
+   */
+  private async tryReattach(row: InstanceRow): Promise<boolean> {
+    if (row.last_pid === null || row.installed !== 1) return false;
+    try {
+      const template = this.templateOf(row);
+      const dir = this.instanceDir(row.id);
+      const [variables, instanceEnv] = await Promise.all([
+        this.repo.getVariables(row.id),
+        this.repo.getEnvVars(row.id),
+      ]);
+      const command = buildStartCommand({
+        template,
+        instanceDir: dir,
+        instanceId: row.id,
+        instanceName: row.name,
+        variables,
+        instanceEnv,
+        overrideExecutable: row.start_executable,
+        overrideArgs: row.start_args ? (JSON.parse(row.start_args) as string[]) : null,
+      });
+      const cwd = resolveSafePath(dir, command.workingDir || '.');
+      if (!this.processes.pidMatches(row.last_pid, command.executable, cwd)) return false;
+      this.processes.adopt({
+        instanceId: row.id,
+        instanceName: row.name,
+        pid: row.last_pid,
+        template,
+      });
+      await this.repo.update(row.id, { status: 'running' });
+      this.logger.info({ instance: row.name, pid: row.last_pid }, 'reattached to running instance');
+      return true;
+    } catch (err) {
+      this.logger.warn(
+        { instance: row.name, err: (err as Error).message },
+        'failed to check for a surviving process, treating as stopped',
+      );
+      return false;
+    }
+  }
+
   async autoStartAll(): Promise<void> {
     for (const row of await this.repo.list()) {
-      // Clear stale statuses from a previous daemon run.
-      if (['running', 'starting', 'stopping', 'installing'].includes(row.status)) {
+      if (!['running', 'starting', 'stopping', 'installing'].includes(row.status)) continue;
+      const reattached = await this.tryReattach(row);
+      if (!reattached) {
         await this.repo.update(row.id, {
           status: row.installed === 1 ? 'stopped' : 'not_installed',
         });
       }
     }
     for (const row of await this.repo.list()) {
-      if (row.auto_start === 1 && row.installed === 1) {
+      if (row.auto_start === 1 && row.installed === 1 && !this.processes.isActive(row.id)) {
         try {
           this.logger.info({ instance: row.name }, 'auto-starting instance');
           await this.start(row.id);

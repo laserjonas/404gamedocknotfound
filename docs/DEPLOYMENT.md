@@ -17,10 +17,18 @@ State lives in SQLite (`/var/lib/gamedock/gamedock.sqlite`), game files under
 `/var/lib/gamedock/backups/<instance-id>/`, console logs under
 `/var/log/gamedock/instances/`.
 
-Because the process manager runs in the daemon, **stopping the service stops the
-game servers** (gracefully; systemd waits up to 90 s). Instances flagged
-_auto-start_ are started again when the service comes back up. The design keeps a
-clean seam (`ProcessManager` interface) to move to per-instance systemd units later.
+Game server uptime is independent of the API process: each instance runs as a
+detached child (its own process group, stdout/stderr going straight to files,
+console input via a named pipe) that keeps running when the API restarts -
+self-update, a crash, or `systemctl restart gamedock` no longer take down
+every hosted game server. On the next start, GameDock checks whether each
+previously-running instance's process is still alive (matching `/proc/<pid>/exe`
+against the expected executable) and reattaches to it instead of restarting it.
+This relies on the systemd unit's `KillMode=process` (only the tracked API pid
+is signaled, never the whole cgroup) - **do not change it to `mixed` or
+`control-group`**, that would kill every running game server on every restart.
+Instances flagged _auto-start_ are only started fresh if they weren't already
+running.
 
 ## Configuration reference
 
@@ -83,14 +91,27 @@ container's network namespace, so each instance's ports need to be published
 through Docker (or the container run with `network_mode: host`) - there's no
 code difference, it's purely a networking/port-mapping question per game
 you host. Everything else (SteamCMD, backups, the update button, Minecraft's
-auto-provisioned JDKs) works the same either way.
+auto-provisioned JDKs, game servers surviving an update/restart) works the
+same either way - the image runs `tini` as PID 1 specifically so detached
+game server processes aren't killed by the kernel when the Node process
+restarts inside the container.
 
 ## Service management
 
 ```bash
 systemctl status gamedock
 journalctl -u gamedock -f          # structured JSON logs
-sudo systemctl restart gamedock    # stops game servers gracefully, restarts them
+sudo systemctl restart gamedock    # restarts the panel; game servers keep running
+```
+
+Existing installs deployed before this behavior was added need one manual,
+one-time root step to pick up the `KillMode=process` change (self-update
+can't touch the systemd unit itself - it's outside `/opt/gamedock` and owned
+by root):
+
+```bash
+sudo cp /opt/gamedock/scripts/systemd/gamedock.service /etc/systemd/system/gamedock.service
+sudo systemctl daemon-reload
 ```
 
 The admin-only **Logs** page in the UI mirrors the same structured log stream

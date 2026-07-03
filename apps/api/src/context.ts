@@ -267,7 +267,6 @@ export async function createContext(
       clearInterval(backupScheduler);
       clearInterval(auditRetentionInterval);
       unsubscribeCrashRestart();
-      await processes.shutdownAll();
       await db.close();
     },
   };

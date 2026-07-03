@@ -34,7 +34,7 @@ RUN rm -rf apps/api/web-dist && cp -r apps/web/dist apps/api/web-dist
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      ca-certificates tar unzip xz-utils python3 \
+      ca-certificates tar unzip xz-utils python3 tini \
       lib32gcc-s1 lib32stdc++6 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -65,4 +65,8 @@ VOLUME ["/var/lib/gamedock", "/var/log/gamedock"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD node -e "fetch('http://127.0.0.1:8340/api/system/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-ENTRYPOINT ["node", "apps/api/dist/index.js"]
+# tini as PID 1: when the Node process exits (self-update, crash), Linux
+# kills every other process in the container's pid namespace unless a real
+# init process stays alive as PID 1 - detached game server processes (see
+# processManager.ts) would otherwise never survive an update inside Docker.
+ENTRYPOINT ["/usr/bin/tini", "--", "node", "apps/api/dist/index.js"]

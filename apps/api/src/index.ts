@@ -36,7 +36,10 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    logger.info({ signal }, 'shutting down, stopping game servers gracefully...');
+    logger.info(
+      { signal },
+      'shutting down (game servers keep running, detached from this process)...',
+    );
     try {
       await app.close();
       await ctx.shutdown();

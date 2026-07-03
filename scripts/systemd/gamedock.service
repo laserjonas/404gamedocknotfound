@@ -20,9 +20,13 @@ ExecStart=/usr/bin/node /opt/gamedock/apps/api/dist/index.js
 # after an explicit `systemctl stop`, only after the process exits on its own.
 Restart=always
 RestartSec=5
-# Give game servers time to shut down gracefully.
 TimeoutStopSec=90
-KillMode=mixed
+# Game servers run as detached processes in this same cgroup so they keep
+# running across API restarts/updates (see processManager.ts). KillMode=process
+# means systemd only ever signals the main tracked pid, never the whole
+# cgroup - do not change this to "mixed" or "control-group", it would kill
+# every running game server whenever the panel restarts or self-updates.
+KillMode=process
 
 # --- Hardening -------------------------------------------------------------
 NoNewPrivileges=true

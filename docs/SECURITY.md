@@ -58,6 +58,12 @@ The last active admin cannot be demoted, disabled or deleted.
   never passed to game servers.
 - The systemd unit applies hardening (`NoNewPrivileges`, `ProtectSystem=full`,
   `PrivateTmp`, restricted write paths).
+- Game servers run detached from the API process (own process group, stdout/
+  stderr to files, console input via a per-instance named pipe under
+  `/var/lib/gamedock`) so they keep running across an API restart or
+  self-update; this needs no elevated privileges beyond what the `gamedock`
+  user already has (`KillMode=process` in the systemd unit, not a privileged
+  helper process).
 
 ### Secrets
 
@@ -114,13 +120,12 @@ an **admin** has to reset that account's 2FA (Users page → Reset 2FA, or
 - Game servers all run as the same `gamedock` user; a compromised game server can
   read other instances' files. Per-instance system users / systemd units are a
   planned improvement.
-- No two-factor authentication yet.
 - Authenticated Steam logins (for games without anonymous server downloads) are not
   supported; this avoids storing Steam credentials until an encrypted secret store
   is implemented.
-- The in-process job queue and process supervision do not survive daemon restarts;
-  running servers are stopped gracefully when the service stops (systemd
-  `TimeoutStopSec` allows 90 s).
+- The job queue does not survive daemon restarts (in-flight installs/updates/backups
+  are marked failed and must be re-run); game server processes themselves do survive,
+  see "Process isolation" above.
 - SQLite is the only supported database in this version (the data layer is
   abstracted so PostgreSQL can be added).
 
