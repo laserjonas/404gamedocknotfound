@@ -3,7 +3,7 @@ import type { AutocompleteInteraction, ChatInputCommandInteraction } from 'disco
 import type { GameDockClient } from '../../gamedockClient.js';
 import type { RoleQuotaRepository } from '../../db/repositories/roleQuotas.js';
 import type { RequestRepository } from '../../db/repositories/requests.js';
-import { resolveQuota } from '../../quota.js';
+import { quotaAllowsTemplate, resolveQuota } from '../../quota.js';
 import { deriveInstanceName } from '../../instanceName.js';
 
 export interface CommandDeps {
@@ -59,7 +59,7 @@ export async function autocomplete(
   }
 
   const matches = templates
-    .filter((t) => quota.allowedTemplateIds.has(t.id))
+    .filter((t) => quotaAllowsTemplate(quota, t.id))
     .filter((t) => t.name.toLowerCase().includes(focused) || t.id.toLowerCase().includes(focused))
     .slice(0, 25) // Discord caps autocomplete choices at 25
     .map((t) => ({ name: t.name, value: t.id }));
@@ -83,7 +83,7 @@ export async function execute(
     );
     return;
   }
-  if (!quota.allowedTemplateIds.has(templateId)) {
+  if (!quotaAllowsTemplate(quota, templateId)) {
     await interaction.editReply(
       `Your role (${quota.matchedRoleLabels.join(', ')}) isn't allowed to request that game.`,
     );

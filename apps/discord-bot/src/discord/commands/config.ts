@@ -1,6 +1,7 @@
 import { PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 import type { ChatInputCommandInteraction } from 'discord.js';
 import type { RoleQuotaRepository } from '../../db/repositories/roleQuotas.js';
+import { ALL_GAMES_SENTINEL } from '../../quota.js';
 
 export interface ConfigCommandDeps {
   roleQuotas: RoleQuotaRepository;
@@ -29,7 +30,7 @@ export const data = new SlashCommandBuilder()
         option
           .setName('games')
           .setDescription(
-            'Comma-separated GameDock template ids this role may request, e.g. valheim,minecraft-java',
+            'Comma-separated GameDock template ids, e.g. valheim,minecraft-java - or "all" for every game',
           )
           .setRequired(true),
       ),
@@ -71,16 +72,19 @@ export async function execute(
   if (sub === 'set-role-limit') {
     const role = interaction.options.getRole('role', true);
     const maxServers = interaction.options.getInteger('max-servers', true);
-    const games = interaction.options
+    const rawGames = interaction.options
       .getString('games', true)
       .split(',')
       .map((g) => g.trim())
       .filter(Boolean);
 
-    if (games.length === 0) {
+    if (rawGames.length === 0) {
       await interaction.reply({ content: 'List at least one game template id.', ephemeral: true });
       return;
     }
+
+    const allowsAll = rawGames.some((g) => g.toLowerCase() === 'all');
+    const games = allowsAll ? [ALL_GAMES_SENTINEL] : rawGames;
 
     deps.roleQuotas.upsert({
       discordRoleId: role.id,
@@ -89,7 +93,7 @@ export async function execute(
       allowedTemplateIds: games,
     });
     await interaction.reply({
-      content: `Set **${role.name}**'s quota: up to ${maxServers} server(s), games: ${games.join(', ')}.`,
+      content: `Set **${role.name}**'s quota: up to ${maxServers} server(s), games: ${allowsAll ? 'all' : games.join(', ')}.`,
       ephemeral: true,
     });
     return;
@@ -115,7 +119,8 @@ export async function execute(
     return;
   }
   const lines = rows.map((row) => {
-    const games = (JSON.parse(row.allowed_template_ids) as string[]).join(', ');
+    const templateIds = JSON.parse(row.allowed_template_ids) as string[];
+    const games = templateIds.includes(ALL_GAMES_SENTINEL) ? 'all' : templateIds.join(', ');
     return `**${row.label}** — up to ${row.max_servers} server(s), games: ${games}`;
   });
   await interaction.reply({ content: lines.join('\n'), ephemeral: true });

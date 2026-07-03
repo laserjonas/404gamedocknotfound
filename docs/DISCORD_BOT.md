@@ -103,14 +103,17 @@ Commands can take a minute to show up in Discord's UI the first time.
 `games` is a comma-separated list of GameDock template ids (e.g.
 `valheim,minecraft-java,rust`) - these match the `id` field from `GET
 /api/templates` (see `docs/API.md`), which is also what the template
-listing page in the GameDock UI is built from.
+listing page in the GameDock UI is built from. Pass **`all`** instead of a
+list to allow every game, including ones added to GameDock later.
 
 ### How multi-role quotas combine
 
 If a member has more than one Discord role with a configured quota, the bot
 uses the **single highest `max-servers`** value (not the sum - stacking
 would let someone combine several roles into an unbounded limit) and the
-**union** of allowed games across every matching role.
+**union** of allowed games across every matching role - if any matching
+role is set to `all`, the member can request any game regardless of what
+their other roles list.
 
 ## Troubleshooting
 

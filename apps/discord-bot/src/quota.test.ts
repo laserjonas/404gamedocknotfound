@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveQuota } from './quota.js';
+import { ALL_GAMES_SENTINEL, quotaAllowsTemplate, resolveQuota } from './quota.js';
 import type { RoleQuotaRow } from './db/repositories/roleQuotas.js';
 
 function row(overrides: Partial<RoleQuotaRow> = {}): RoleQuotaRow {
@@ -42,5 +42,36 @@ describe('resolveQuota', () => {
       }),
     ]);
     expect([...(quota?.allowedTemplateIds ?? [])].sort()).toEqual(['minecraft-java', 'valheim']);
+  });
+
+  it('treats the "all games" sentinel as allowing every template', () => {
+    const quota = resolveQuota([
+      row({ allowed_template_ids: JSON.stringify([ALL_GAMES_SENTINEL]) }),
+    ]);
+    expect(quota?.allowsAllGames).toBe(true);
+    expect(quota && quotaAllowsTemplate(quota, 'anything-not-listed')).toBe(true);
+  });
+
+  it('allows all games if any matching role grants it, even alongside a role with a specific list', () => {
+    const quota = resolveQuota([
+      row({
+        discord_role_id: '1',
+        label: 'Specific',
+        allowed_template_ids: JSON.stringify(['valheim']),
+      }),
+      row({
+        discord_role_id: '2',
+        label: 'VIP',
+        allowed_template_ids: JSON.stringify([ALL_GAMES_SENTINEL]),
+      }),
+    ]);
+    expect(quota?.allowsAllGames).toBe(true);
+    expect(quota && quotaAllowsTemplate(quota, 'rust')).toBe(true);
+  });
+
+  it('does not allow arbitrary templates when no role grants "all"', () => {
+    const quota = resolveQuota([row({ allowed_template_ids: JSON.stringify(['valheim']) })]);
+    expect(quota?.allowsAllGames).toBe(false);
+    expect(quota && quotaAllowsTemplate(quota, 'rust')).toBe(false);
   });
 });
