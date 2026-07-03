@@ -58,6 +58,43 @@ export class SystemStatsService {
   }
 }
 
+export interface SystemMetricsSample {
+  at: string;
+  cpuPercent: number;
+  memoryUsedBytes: number;
+  memoryTotalBytes: number;
+}
+
+const METRICS_HISTORY_SIZE = 288; // 24h of history at the 5-minute sampling interval used in context.ts
+
+/**
+ * Lightweight in-memory metrics history for the dashboard trend sparkline -
+ * a fixed-size circular buffer, same shape as LogRingBuffer. Deliberately
+ * not persisted: a full time-series store is a separate, larger roadmap
+ * item if this isn't enough on its own.
+ */
+export class SystemMetricsHistory {
+  private samples: (SystemMetricsSample | undefined)[] = new Array(METRICS_HISTORY_SIZE);
+  private nextIndex = 0;
+  private size = 0;
+
+  record(sample: SystemMetricsSample): void {
+    this.samples[this.nextIndex] = sample;
+    this.nextIndex = (this.nextIndex + 1) % METRICS_HISTORY_SIZE;
+    if (this.size < METRICS_HISTORY_SIZE) this.size++;
+  }
+
+  /** Oldest-to-newest. */
+  recent(): SystemMetricsSample[] {
+    const start = (this.nextIndex - this.size + METRICS_HISTORY_SIZE) % METRICS_HISTORY_SIZE;
+    const result: SystemMetricsSample[] = [];
+    for (let i = 0; i < this.size; i++) {
+      result.push(this.samples[(start + i) % METRICS_HISTORY_SIZE]!);
+    }
+    return result;
+  }
+}
+
 async function commandVersion(command: string, args: string[]): Promise<string | null> {
   return new Promise((resolve) => {
     try {

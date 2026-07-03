@@ -70,7 +70,8 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.get('/api/auth/me', { preHandler: requireRole('viewer') }, async (request) => {
     const auth = request.auth;
     if (!auth) throw unauthorized();
-    return { user: toUserDto(auth.user), csrfToken: auth.session.csrf_token };
+    // Token-authenticated requests have no session/CSRF token to return.
+    return { user: toUserDto(auth.user), csrfToken: auth.session?.csrf_token ?? '' };
   });
 
   // --- 2FA self-service ------------------------------------------------------

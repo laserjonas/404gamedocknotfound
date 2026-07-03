@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto';
-import type { PasskeyDto, Role, UserDto } from '@gamedock/shared';
+import type { ApiTokenDto, PasskeyDto, Role, UserDto } from '@gamedock/shared';
 import { ROLE_LEVELS } from '@gamedock/shared';
 import type { UserRepository, UserRow } from '../db/repositories/users.js';
 import { toUserDto } from '../db/repositories/users.js';
 import type { SessionRepository, SessionRow } from '../db/repositories/sessions.js';
+import type { ApiTokenRepository, ApiTokenRow } from '../db/repositories/apiTokens.js';
 import type {
   WebauthnCredentialRepository,
   WebauthnCredentialRow,
@@ -50,10 +51,17 @@ export interface AuthResult {
 export type LoginOutcome =
   { status: 'ok'; result: AuthResult } | { status: 'totp_required'; challengeToken: string };
 
+/**
+ * `session` is null for API-token authentication - there's no CSRF vector
+ * (a bearer token is never automatically attached to a request the way a
+ * cookie is), and no session row to expose a CSRF token from.
+ */
 export interface AuthenticatedSession {
   user: UserRow;
-  session: SessionRow;
+  session: SessionRow | null;
 }
+
+const API_TOKEN_PREFIX = 'gd_';
 
 interface PendingTotpChallenge {
   userId: string;
@@ -113,6 +121,7 @@ export class AuthService {
     private users: UserRepository,
     private sessions: SessionRepository,
     private webauthnCredentials: WebauthnCredentialRepository,
+    private apiTokens: ApiTokenRepository,
     private webauthn: { rpId: string; origin: string },
   ) {}
 
@@ -422,6 +431,67 @@ export class AuthService {
     const user = await this.users.findById(session.user_id);
     if (!user || user.disabled === 1) return null;
     return { user, session };
+  }
+
+  // --- API tokens (self-service, for scripting/automation) -------------------
+
+  private toApiTokenDto(row: ApiTokenRow): ApiTokenDto {
+    return {
+      id: row.id,
+      name: row.name,
+      createdAt: row.created_at,
+      lastUsedAt: row.last_used_at,
+      expiresAt: row.expires_at,
+    };
+  }
+
+  async listApiTokens(userId: string): Promise<ApiTokenDto[]> {
+    const rows = await this.apiTokens.listForUser(userId);
+    return rows.map((row) => this.toApiTokenDto(row));
+  }
+
+  /** Returns the raw token exactly once - only its hash is ever stored. */
+  async createApiToken(
+    userId: string,
+    name: string,
+    expiresInDays: number | null,
+  ): Promise<{ token: string; dto: ApiTokenDto }> {
+    const token = `${API_TOKEN_PREFIX}${randomBytes(32).toString('base64url')}`;
+    // expiresInDays is validated (positive, capped) at the route layer; a
+    // negative value here is only ever exercised by tests, to construct an
+    // already-expired token for validateApiToken()'s expiry check.
+    const expiresAt = expiresInDays
+      ? new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+    const row = await this.apiTokens.create({
+      userId,
+      name: name.trim().slice(0, 64) || 'Token',
+      tokenHash: hashToken(token),
+      expiresAt,
+    });
+    return { token, dto: this.toApiTokenDto(row) };
+  }
+
+  async removeApiToken(userId: string, id: string): Promise<void> {
+    const { changes } = await this.apiTokens.deleteForUser(userId, id);
+    if (changes === 0) throw badRequest('Token not found');
+  }
+
+  /** Admin lost-all-tokens recovery path (parallel to resetTotp/resetPasskeys). */
+  async removeAllApiTokensForUser(userId: string): Promise<void> {
+    await this.apiTokens.deleteAllForUser(userId);
+  }
+
+  /** Authenticates an `Authorization: Bearer <token>` request. No session/CSRF involved. */
+  async validateApiToken(rawToken: string): Promise<AuthenticatedSession | null> {
+    if (!rawToken.startsWith(API_TOKEN_PREFIX)) return null;
+    const row = await this.apiTokens.findByTokenHash(hashToken(rawToken));
+    if (!row) return null;
+    if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) return null;
+    const user = await this.users.findById(row.user_id);
+    if (!user || user.disabled === 1) return null;
+    await this.apiTokens.updateLastUsed(row.id);
+    return { user, session: null };
   }
 
   async logout(sessionToken: string): Promise<void> {

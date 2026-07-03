@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type {
+  ApiTokenDto,
   AuditLogDto,
+  CreateApiTokenResponseDto,
   DependencyStatusDto,
   JobDto,
   PasskeyDto,
@@ -41,6 +43,14 @@ export function SettingsPage() {
   const [passkeyBusy, setPasskeyBusy] = useState(false);
   const [addingPasskey, setAddingPasskey] = useState(false);
   const [newPasskeyNickname, setNewPasskeyNickname] = useState('');
+
+  const [apiTokens, setApiTokens] = useState<ApiTokenDto[]>([]);
+  const [apiTokenError, setApiTokenError] = useState<string | null>(null);
+  const [apiTokenBusy, setApiTokenBusy] = useState(false);
+  const [creatingToken, setCreatingToken] = useState(false);
+  const [newTokenName, setNewTokenName] = useState('');
+  const [newTokenExpiresInDays, setNewTokenExpiresInDays] = useState('');
+  const [revealedToken, setRevealedToken] = useState<{ token: string; name: string } | null>(null);
 
   const loadUpdateStatus = () => {
     setUpdateError(null);
@@ -174,6 +184,53 @@ export function SettingsPage() {
     }
   };
 
+  const loadApiTokens = () => {
+    api
+      .get<ApiTokenDto[]>('/api/auth/tokens')
+      .then(setApiTokens)
+      .catch(() => {});
+  };
+
+  const createApiToken = async () => {
+    const name = newTokenName.trim();
+    if (!name) return;
+    setApiTokenError(null);
+    setApiTokenBusy(true);
+    try {
+      const trimmedExpiry = newTokenExpiresInDays.trim();
+      const expiresInDays = trimmedExpiry ? parseInt(trimmedExpiry, 10) : null;
+      if (trimmedExpiry && (!Number.isInteger(expiresInDays) || (expiresInDays ?? 0) < 1)) {
+        throw new Error('Expiry must be a whole number of days, or blank for never');
+      }
+      const result = await api.post<CreateApiTokenResponseDto>('/api/auth/tokens', {
+        name,
+        expiresInDays,
+      });
+      setRevealedToken({ token: result.token, name: result.name });
+      setCreatingToken(false);
+      setNewTokenName('');
+      setNewTokenExpiresInDays('');
+      loadApiTokens();
+    } catch (err) {
+      setApiTokenError(err instanceof Error ? err.message : 'Failed to create token');
+    } finally {
+      setApiTokenBusy(false);
+    }
+  };
+
+  const removeApiToken = async (id: string) => {
+    setApiTokenError(null);
+    setApiTokenBusy(true);
+    try {
+      await api.delete(`/api/auth/tokens/${id}`);
+      loadApiTokens();
+    } catch (err) {
+      setApiTokenError(err instanceof Error ? err.message : 'Failed to revoke token');
+    } finally {
+      setApiTokenBusy(false);
+    }
+  };
+
   useEffect(() => {
     api
       .get<DependencyStatusDto[]>('/api/system/dependencies')
@@ -187,6 +244,7 @@ export function SettingsPage() {
       loadUpdateStatus();
     }
     loadPasskeys();
+    loadApiTokens();
   }, [hasRole]);
 
   return (
@@ -386,6 +444,98 @@ export function SettingsPage() {
           </button>
         )}
         {passkeyError && <div className="error-text">{passkeyError}</div>}
+      </div>
+
+      <div className="card form-card">
+        <h2>API tokens</h2>
+        <p className="muted">
+          Bearer tokens for scripting/automation against the REST API - they carry your account's
+          own role and permissions, so treat them like a password. Send as{' '}
+          <code>Authorization: Bearer &lt;token&gt;</code>.
+        </p>
+        {revealedToken && (
+          <>
+            <p className="muted">
+              Token <strong>{revealedToken.name}</strong> created - copy it now, it won't be shown
+              again:
+            </p>
+            <pre className="recovery-codes">{revealedToken.token}</pre>
+            <button className="btn btn-primary btn-small" onClick={() => setRevealedToken(null)}>
+              I've saved this
+            </button>
+          </>
+        )}
+        {apiTokens.length > 0 && (
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Created</th>
+                <th>Last used</th>
+                <th>Expires</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {apiTokens.map((tok) => (
+                <tr key={tok.id}>
+                  <td>{tok.name}</td>
+                  <td className="muted">{formatDate(tok.createdAt)}</td>
+                  <td className="muted">{tok.lastUsedAt ? formatDate(tok.lastUsedAt) : 'never'}</td>
+                  <td className="muted">{tok.expiresAt ? formatDate(tok.expiresAt) : 'never'}</td>
+                  <td>
+                    <button
+                      className="btn btn-small"
+                      disabled={apiTokenBusy}
+                      onClick={() => void removeApiToken(tok.id)}
+                    >
+                      Revoke
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {creatingToken ? (
+          <div className="form-row-inline">
+            <input
+              placeholder="Name (e.g. backup script)"
+              value={newTokenName}
+              onChange={(e) => setNewTokenName(e.target.value)}
+              autoFocus
+            />
+            <input
+              placeholder="Expires in days (blank = never)"
+              value={newTokenExpiresInDays}
+              onChange={(e) => setNewTokenExpiresInDays(e.target.value)}
+              style={{ width: 200 }}
+            />
+            <button
+              className="btn btn-primary btn-small"
+              disabled={apiTokenBusy || !newTokenName.trim()}
+              onClick={() => void createApiToken()}
+            >
+              Create
+            </button>
+            <button
+              className="btn btn-small"
+              onClick={() => {
+                setCreatingToken(false);
+                setNewTokenName('');
+                setNewTokenExpiresInDays('');
+                setApiTokenError(null);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button className="btn btn-small" onClick={() => setCreatingToken(true)}>
+            Create a token
+          </button>
+        )}
+        {apiTokenError && <div className="error-text">{apiTokenError}</div>}
       </div>
 
       {hasRole('admin') && (

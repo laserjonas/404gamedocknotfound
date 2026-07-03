@@ -11,6 +11,7 @@ import { buildAuthHook } from './plugins/auth.js';
 import { PathTraversalError } from './utils/safePath.js';
 import { registerAuthRoutes } from './routes/auth.js';
 import { registerPasskeyRoutes } from './routes/passkeys.js';
+import { registerApiTokenRoutes } from './routes/apiTokens.js';
 import { registerUserRoutes } from './routes/users.js';
 import { registerTemplateRoutes } from './routes/templates.js';
 import { registerInstanceRoutes } from './routes/instances.js';
@@ -77,6 +78,7 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
 
   registerAuthRoutes(app, ctx);
   registerPasskeyRoutes(app, ctx);
+  registerApiTokenRoutes(app, ctx);
   registerUserRoutes(app, ctx);
   registerTemplateRoutes(app, ctx);
   registerInstanceRoutes(app, ctx);

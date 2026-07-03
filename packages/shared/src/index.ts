@@ -67,6 +67,26 @@ export interface PasskeyDto {
   deviceType: 'singleDevice' | 'multiDevice';
 }
 
+/** An API token for scripting/automation. The raw token is never returned again after creation. */
+export interface ApiTokenDto {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+}
+
+export interface CreateApiTokenRequest {
+  name: string;
+  /** Null/omitted = never expires. */
+  expiresInDays?: number | null;
+}
+
+export interface CreateApiTokenResponseDto extends ApiTokenDto {
+  /** Shown once - store it now, it can't be retrieved again. */
+  token: string;
+}
+
 /**
  * These four are pass-through WebAuthn JSON blobs (from @simplewebauthn/server
  * on the API side, consumed by @simplewebauthn/browser on the web side).
@@ -205,6 +225,10 @@ export interface InstanceDto {
   backupIntervalHours: number | null;
   /** Keep only the last N automatic/manual backups; null means keep all. */
   backupRetentionCount: number | null;
+  /** Restart automatically every N hours while running; null means disabled. */
+  restartIntervalHours: number | null;
+  /** When the restart schedule's clock last reset (a scheduled restart, or since it was configured/changed). Null if never. */
+  lastScheduledRestartAt: string | null;
 }
 
 export interface InstanceUsageDto {
@@ -235,6 +259,7 @@ export interface UpdateInstanceRequest {
   crashRestart?: boolean;
   backupIntervalHours?: number | null;
   backupRetentionCount?: number | null;
+  restartIntervalHours?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +344,14 @@ export interface SystemStatsDto {
   uptimeSeconds: number;
   runningInstances: number;
   totalInstances: number;
+}
+
+/** One sample of the lightweight in-memory metrics history (dashboard trend sparkline). */
+export interface SystemMetricsSampleDto {
+  at: string;
+  cpuPercent: number;
+  memoryUsedBytes: number;
+  memoryTotalBytes: number;
 }
 
 export interface HealthDto {

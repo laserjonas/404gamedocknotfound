@@ -1,9 +1,12 @@
 # REST API
 
-Base URL: `/api`. All responses are JSON. Authentication uses a session cookie
-(`gamedock_session`) obtained via login; every **mutating** request (POST, PUT,
-PATCH, DELETE) must additionally send the session's CSRF token in the
-`x-csrf-token` header (returned by login and `/api/auth/me`).
+Base URL: `/api`. All responses are JSON. Authentication is either a session
+cookie (`gamedock_session`) obtained via login - every **mutating** request
+(POST, PUT, PATCH, DELETE) must additionally send the session's CSRF token in
+the `x-csrf-token` header (returned by login and `/api/auth/me`) - or an API
+token (see Auth → tokens below) sent as `Authorization: Bearer <token>`, which
+carries the token owner's role and needs no CSRF header (a bearer token is
+never automatically attached to a request the way a cookie is).
 
 Errors have the shape:
 
@@ -31,15 +34,18 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 | POST   | `/auth/passkeys/register/complete` | viewer | Body `{nickname, response}` (from `startRegistration`) → the new passkey                                                                                  |
 | GET    | `/auth/passkeys`                   | viewer | List the current user's registered passkeys                                                                                                               |
 | DELETE | `/auth/passkeys/:id`               | viewer | Remove one of the current user's passkeys                                                                                                                 |
+| GET    | `/auth/tokens`                     | viewer | List the current user's API tokens (never returns the raw token)                                                                                          |
+| POST   | `/auth/tokens`                     | viewer | Body `{name, expiresInDays?}` → the new token, `token` shown once and never retrievable again                                                             |
+| DELETE | `/auth/tokens/:id`                 | viewer | Revoke one of the current user's API tokens                                                                                                               |
 
 ## Users (admin)
 
-| Method | Path         | Description                                                                                                                                                                                               |
-| ------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/users`     | List users                                                                                                                                                                                                |
-| POST   | `/users`     | Body `{username, password, role}`                                                                                                                                                                         |
-| PATCH  | `/users/:id` | Body `{password?, role?, disabled?, resetTotp?, resetPasskeys?}` (safeguards protect the last admin; `resetTotp`/`resetPasskeys: true` force-disable 2FA / remove all passkeys, e.g. after a lost device) |
-| DELETE | `/users/:id` | Delete user (not yourself)                                                                                                                                                                                |
+| Method | Path         | Description                                                                                                                                                                                                                                                 |
+| ------ | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/users`     | List users                                                                                                                                                                                                                                                  |
+| POST   | `/users`     | Body `{username, password, role}`                                                                                                                                                                                                                           |
+| PATCH  | `/users/:id` | Body `{password?, role?, disabled?, resetTotp?, resetPasskeys?, resetApiTokens?}` (safeguards protect the last admin; the `reset*: true` flags force-disable 2FA / remove all passkeys / revoke all API tokens, e.g. after a lost device or a leaked token) |
+| DELETE | `/users/:id` | Delete user (not yourself)                                                                                                                                                                                                                                  |
 
 ## Templates
 
@@ -50,14 +56,14 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 
 ## Instances
 
-| Method | Path                   | Role     | Description                                                                                                                                        |
-| ------ | ---------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/instances`           | viewer   | List instances (live status, ports, env)                                                                                                           |
-| POST   | `/instances`           | admin    | Body `{name, templateId, variables?, ports?}`                                                                                                      |
-| GET    | `/instances/:id`       | viewer   | Detail incl. CPU/RAM usage while running                                                                                                           |
-| POST   | `/instances/:id/clone` | admin    | Body `{name}` - copies template snapshot, variables, env vars, ports and startup/backup settings into a new (not-yet-installed) instance           |
-| PATCH  | `/instances/:id`       | operator | Body `{name?, autoStart?, crashRestart?, backupIntervalHours?, backupRetentionCount?, startExecutable?, startArgs?, envVars?, variables?, ports?}` |
-| DELETE | `/instances/:id`       | admin    | Deletes files + backups; returns `{job}`                                                                                                           |
+| Method | Path                   | Role     | Description                                                                                                                                                               |
+| ------ | ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/instances`           | viewer   | List instances (live status, ports, env)                                                                                                                                  |
+| POST   | `/instances`           | admin    | Body `{name, templateId, variables?, ports?}`                                                                                                                             |
+| GET    | `/instances/:id`       | viewer   | Detail incl. CPU/RAM usage while running                                                                                                                                  |
+| POST   | `/instances/:id/clone` | admin    | Body `{name}` - copies template snapshot, variables, env vars, ports and startup/backup settings into a new (not-yet-installed) instance                                  |
+| PATCH  | `/instances/:id`       | operator | Body `{name?, autoStart?, crashRestart?, backupIntervalHours?, backupRetentionCount?, restartIntervalHours?, startExecutable?, startArgs?, envVars?, variables?, ports?}` |
+| DELETE | `/instances/:id`       | admin    | Deletes files + backups; returns `{job}`                                                                                                                                  |
 
 ### Actions
 
@@ -111,15 +117,16 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 
 ## System
 
-| Method | Path                   | Role   | Description                                                       |
-| ------ | ---------------------- | ------ | ----------------------------------------------------------------- |
-| GET    | `/system/health`       | –      | Liveness probe                                                    |
-| GET    | `/system/stats`        | viewer | CPU, memory, disk, network, instance counts                       |
-| GET    | `/system/dependencies` | viewer | steamcmd/java/tar/unzip detection                                 |
-| GET    | `/system/events`       | viewer | Recent instance/backup events (dashboard)                         |
-| GET    | `/system/audit?limit=` | admin  | Audit log                                                         |
-| GET    | `/system/update`       | admin  | Check for updates on the configured git branch                    |
-| POST   | `/system/update`       | admin  | Clone + build + swap in the latest commit → `{job}`, then restart |
+| Method | Path                    | Role   | Description                                                       |
+| ------ | ----------------------- | ------ | ----------------------------------------------------------------- |
+| GET    | `/system/health`        | –      | Liveness probe                                                    |
+| GET    | `/system/stats`         | viewer | CPU, memory, disk, network, instance counts                       |
+| GET    | `/system/stats/history` | viewer | Lightweight in-memory CPU/RAM trend history (dashboard sparkline) |
+| GET    | `/system/dependencies`  | viewer | steamcmd/java/tar/unzip detection                                 |
+| GET    | `/system/events`        | viewer | Recent instance/backup events (dashboard)                         |
+| GET    | `/system/audit?limit=`  | admin  | Audit log                                                         |
+| GET    | `/system/update`        | admin  | Check for updates on the configured git branch                    |
+| POST   | `/system/update`        | admin  | Clone + build + swap in the latest commit → `{job}`, then restart |
 
 ## Application logs
 

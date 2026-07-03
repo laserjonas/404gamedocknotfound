@@ -11,6 +11,7 @@ import { BackupRepository } from './db/repositories/backups.js';
 import { AuditRepository } from './db/repositories/audit.js';
 import { SettingsRepository } from './db/repositories/settings.js';
 import { WebauthnCredentialRepository } from './db/repositories/webauthnCredentials.js';
+import { ApiTokenRepository } from './db/repositories/apiTokens.js';
 import { AuthService } from './auth/service.js';
 import { TemplateService } from './services/templates.js';
 import { EventHub } from './services/events.js';
@@ -20,7 +21,7 @@ import { BackupService } from './services/backups.js';
 import { FileService } from './services/files.js';
 import { InstanceService } from './services/instances.js';
 import { LinuxUserService } from './services/linuxUsers.js';
-import { SystemStatsService } from './services/systemStats.js';
+import { SystemStatsService, SystemMetricsHistory } from './services/systemStats.js';
 import { CrashRestartTracker } from './services/crashRestart.js';
 import { SelfUpdateService } from './services/selfUpdate.js';
 import { LogService } from './services/logs.js';
@@ -28,8 +29,9 @@ import { toAuditDto } from './db/repositories/audit.js';
 
 const CRASH_RESTART_LIMITS = { maxRestarts: 4, windowMs: 5 * 60 * 1000 };
 const CRASH_RESTART_DELAY_MS = 5000;
-const BACKUP_SCHEDULER_INTERVAL_MS = 15 * 60 * 1000;
+const SCHEDULED_TASK_SCAN_INTERVAL_MS = 15 * 60 * 1000;
 const AUDIT_RETENTION_SCAN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const METRICS_SAMPLE_INTERVAL_MS = 5 * 60 * 1000;
 
 export interface AppContext {
   config: AppConfig;
@@ -44,6 +46,7 @@ export interface AppContext {
     audit: AuditRepository;
     settings: SettingsRepository;
     webauthnCredentials: WebauthnCredentialRepository;
+    apiTokens: ApiTokenRepository;
   };
   auth: AuthService;
   templates: TemplateService;
@@ -55,6 +58,7 @@ export interface AppContext {
   instances: InstanceService;
   linuxUsers: LinuxUserService;
   systemStats: SystemStatsService;
+  metricsHistory: SystemMetricsHistory;
   selfUpdate: SelfUpdateService;
   logs: LogService;
   /** Creates a tagged child logger and registers it so runtime level changes reach it too. */
@@ -88,6 +92,7 @@ export async function createContext(
     audit: new AuditRepository(db),
     settings: new SettingsRepository(db),
     webauthnCredentials: new WebauthnCredentialRepository(db),
+    apiTokens: new ApiTokenRepository(db),
   };
 
   const events = new EventHub();
@@ -105,10 +110,13 @@ export async function createContext(
   const componentLogger: AppContext['componentLogger'] = (name) =>
     logRegistry.register(logger.child({ component: name }));
 
-  const auth = new AuthService(repos.users, repos.sessions, repos.webauthnCredentials, {
-    rpId: config.rpId,
-    origin: config.publicOrigin,
-  });
+  const auth = new AuthService(
+    repos.users,
+    repos.sessions,
+    repos.webauthnCredentials,
+    repos.apiTokens,
+    { rpId: config.rpId, origin: config.publicOrigin },
+  );
   const templates = new TemplateService(db, config.dataDir, componentLogger('templates'));
   await templates.reload();
 
@@ -154,6 +162,7 @@ export async function createContext(
     componentLogger('instances'),
   );
   const systemStats = new SystemStatsService();
+  const metricsHistory = new SystemMetricsHistory();
   const selfUpdate = new SelfUpdateService({
     repoUrl: config.updateRepoUrl,
     branch: config.updateBranch,
@@ -203,9 +212,41 @@ export async function createContext(
       .runDueScheduledBackups()
       .catch((err) => logger.warn({ err: (err as Error).message }, 'scheduled backup scan failed'));
   };
-  const backupScheduler = setInterval(runBackupScan, BACKUP_SCHEDULER_INTERVAL_MS);
-  backupScheduler.unref();
+  // Scheduled restarts: restart any running instance whose configured
+  // interval has elapsed since its last (scheduled) restart.
+  const runRestartScan = () => {
+    void instances
+      .runDueScheduledRestarts()
+      .catch((err) =>
+        logger.warn({ err: (err as Error).message }, 'scheduled restart scan failed'),
+      );
+  };
+  const scheduledTaskScanner = setInterval(() => {
+    runBackupScan();
+    runRestartScan();
+  }, SCHEDULED_TASK_SCAN_INTERVAL_MS);
+  scheduledTaskScanner.unref();
   queueMicrotask(runBackupScan);
+  queueMicrotask(runRestartScan);
+
+  // Lightweight metrics history for the dashboard trend sparkline - an
+  // in-memory sample every few minutes, not a persisted time-series.
+  const recordMetricsSample = () => {
+    void systemStats
+      .collect()
+      .then((stats) => {
+        metricsHistory.record({
+          at: new Date().toISOString(),
+          cpuPercent: stats.cpu.usagePercent,
+          memoryUsedBytes: stats.memory.usedBytes,
+          memoryTotalBytes: stats.memory.totalBytes,
+        });
+      })
+      .catch((err) => logger.warn({ err: (err as Error).message }, 'metrics sample failed'));
+  };
+  const metricsSampler = setInterval(recordMetricsSample, METRICS_SAMPLE_INTERVAL_MS);
+  metricsSampler.unref();
+  queueMicrotask(recordMetricsSample);
 
   // Crash auto-restart: opt-in per instance, capped to avoid restart loops
   // on a server that crashes immediately every time (bad config, corrupt world).
@@ -272,14 +313,16 @@ export async function createContext(
     instances,
     linuxUsers,
     systemStats,
+    metricsHistory,
     selfUpdate,
     logs,
     componentLogger,
     audit,
     async shutdown() {
       clearInterval(sessionCleanup);
-      clearInterval(backupScheduler);
+      clearInterval(scheduledTaskScanner);
       clearInterval(auditRetentionInterval);
+      clearInterval(metricsSampler);
       unsubscribeCrashRestart();
       await db.close();
     },

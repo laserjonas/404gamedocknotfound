@@ -179,6 +179,23 @@ is only reachable by IP, give it a hostname either via real DNS or a
 certs can include the hostname as a SAN so the rest of the site keeps
 working over that same name).
 
+### API tokens
+
+Any user can create one or more bearer tokens from Settings → API tokens,
+for scripting/automation against the REST API - sent as `Authorization:
+Bearer <token>` instead of a session cookie. A token carries its owner's
+full role and permissions (the same access they'd have signed in normally),
+so treat one like a password: it's shown exactly once at creation and only
+a sha256 hash is ever stored, the same treatment as session tokens and 2FA
+recovery codes. Tokens can optionally expire after N days, and are checked
+against that expiry on every use. Because a bearer token is never
+automatically attached to a request the way a cookie is, token-authenticated
+requests carry no CSRF risk and don't need the `x-csrf-token` header.
+
+Revoke a token any time from Settings, or - if you suspect one has leaked -
+an **admin** can revoke every token for an account in one step (Users page →
+Reset API tokens, or `PATCH /api/users/:id {"resetApiTokens": true}`).
+
 ## What you must do
 
 1. **Never expose port 8340 directly.** Bind to `127.0.0.1` (default) and put

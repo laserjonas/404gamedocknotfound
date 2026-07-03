@@ -14,13 +14,27 @@ declare module 'fastify' {
   }
 }
 
-/** Reads the session cookie and attaches the authenticated session (or null). */
+const BEARER_PREFIX = 'Bearer ';
+
+/**
+ * Reads the session cookie (browser/SPA) or, if absent, an
+ * `Authorization: Bearer <token>` header (scripting/automation) and
+ * attaches the authenticated session (or null).
+ */
 export function buildAuthHook(authService: AuthService) {
   return async (request: FastifyRequest, _reply: FastifyReply): Promise<void> => {
     request.auth = null;
-    const token = request.cookies[SESSION_COOKIE];
-    if (!token) return;
-    request.auth = await authService.validateSession(token);
+    const cookieToken = request.cookies[SESSION_COOKIE];
+    if (cookieToken) {
+      request.auth = await authService.validateSession(cookieToken);
+      return;
+    }
+    const authHeader = request.headers.authorization;
+    if (authHeader?.startsWith(BEARER_PREFIX)) {
+      request.auth = await authService.validateApiToken(
+        authHeader.slice(BEARER_PREFIX.length).trim(),
+      );
+    }
   };
 }
 
@@ -62,6 +76,10 @@ export function requireRole(role: Role) {
     if (!roleAtLeast(request.auth.user.role, role)) {
       throw forbidden(`This action requires the ${role} role`);
     }
+    // API-token auth has no cookie, so it isn't a CSRF vector - a bearer
+    // token is never automatically attached to a request the way a
+    // cookie is, and there's no session to hold a CSRF token anyway.
+    if (request.auth.session === null) return;
     const method = request.method.toUpperCase();
     if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
       const headerToken = request.headers[CSRF_HEADER];

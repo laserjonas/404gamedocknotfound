@@ -13,6 +13,7 @@ import type {
   InstanceRepository,
   InstanceRow,
 } from '../db/repositories/instances.js';
+import { nowIso } from '../db/database.js';
 import type { JobRow } from '../db/repositories/jobs.js';
 import type { JobService } from './jobs.js';
 import type { TemplateService } from './templates.js';
@@ -114,6 +115,8 @@ export class InstanceService {
       crashRestart: row.crash_restart === 1,
       backupIntervalHours: row.backup_interval_hours,
       backupRetentionCount: row.backup_retention_count,
+      restartIntervalHours: row.restart_interval_hours,
+      lastScheduledRestartAt: row.last_scheduled_restart_at,
     };
   }
 
@@ -246,6 +249,7 @@ export class InstanceService {
       crashRestart: source.crash_restart === 1,
       backupIntervalHours: source.backup_interval_hours,
       backupRetentionCount: source.backup_retention_count,
+      restartIntervalHours: source.restart_interval_hours,
       startExecutable: source.start_executable,
       startArgs: source.start_args,
     });
@@ -316,6 +320,9 @@ export class InstanceService {
         : {}),
       ...(request.backupRetentionCount !== undefined
         ? { backupRetentionCount: request.backupRetentionCount }
+        : {}),
+      ...(request.restartIntervalHours !== undefined
+        ? { restartIntervalHours: request.restartIntervalHours, lastScheduledRestartAt: null }
         : {}),
     });
 
@@ -558,6 +565,44 @@ export class InstanceService {
         this.logger.warn(
           { instanceId: row.id, err: (err as Error).message },
           'failed to enqueue scheduled backup',
+        );
+      }
+    }
+  }
+
+  /**
+   * Restarts every running instance whose restart schedule is due. Called
+   * periodically, same cadence as runDueScheduledBackups().
+   *
+   * The first time a schedule is observed (no last_scheduled_restart_at yet -
+   * either just configured, or the interval was just changed), the clock
+   * starts from now without restarting immediately - a surprise restart the
+   * moment someone enables this would be a much bigger interruption than an
+   * unusually-early first scheduled backup.
+   */
+  async runDueScheduledRestarts(): Promise<void> {
+    for (const row of await this.repo.list()) {
+      if (!row.restart_interval_hours || row.installed !== 1) continue;
+      if (!this.processes.isActive(row.id)) continue;
+      if (await this.jobs.hasActiveJob(row.id)) continue;
+
+      if (!row.last_scheduled_restart_at) {
+        await this.repo.update(row.id, { lastScheduledRestartAt: nowIso() });
+        continue;
+      }
+      const dueAt =
+        new Date(row.last_scheduled_restart_at).getTime() +
+        row.restart_interval_hours * 60 * 60 * 1000;
+      if (Date.now() < dueAt) continue;
+
+      try {
+        this.logger.info({ instance: row.name }, 'scheduled restart due');
+        await this.restart(row.id);
+        await this.repo.update(row.id, { lastScheduledRestartAt: nowIso() });
+      } catch (err) {
+        this.logger.warn(
+          { instanceId: row.id, err: (err as Error).message },
+          'scheduled restart failed',
         );
       }
     }

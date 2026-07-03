@@ -94,6 +94,16 @@ export function UsersPage() {
     }
   };
 
+  const resetApiTokens = async (user: UserDto) => {
+    setError(null);
+    try {
+      await api.patch(`/api/users/${user.id}`, { resetApiTokens: true });
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to revoke API tokens');
+    }
+  };
+
   const confirmDelete = async () => {
     if (!deleting) return;
     try {
@@ -167,6 +177,9 @@ export function UsersPage() {
                   )}
                   <button className="btn btn-small" onClick={() => void resetPasskeys(user)}>
                     Reset passkeys
+                  </button>
+                  <button className="btn btn-small" onClick={() => void resetApiTokens(user)}>
+                    Reset API tokens
                   </button>
                   {user.id !== me?.id && (
                     <>

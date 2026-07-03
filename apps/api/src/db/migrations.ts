@@ -188,6 +188,30 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_audit_target ON audit_logs(target_type, target_id, action);
     `,
   },
+  {
+    id: 8,
+    name: 'api-tokens',
+    sql: `
+      CREATE TABLE api_tokens (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        last_used_at TEXT,
+        expires_at TEXT
+      );
+      CREATE INDEX idx_api_tokens_user ON api_tokens(user_id);
+    `,
+  },
+  {
+    id: 9,
+    name: 'scheduled-restart',
+    sql: `
+      ALTER TABLE server_instances ADD COLUMN restart_interval_hours INTEGER;
+      ALTER TABLE server_instances ADD COLUMN last_scheduled_restart_at TEXT;
+    `,
+  },
 ];
 
 export async function runMigrations(db: DatabaseClient, logger?: Logger): Promise<void> {

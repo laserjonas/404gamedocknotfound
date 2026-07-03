@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { GameTemplateDto, InstanceDto } from '@gamedock/shared';
 import { api } from '../../api';
 import { useAuth } from '../../auth';
+import { formatDate } from '../../format';
 
 interface SettingsTabProps {
   instance: InstanceDto;
@@ -21,6 +22,9 @@ export function SettingsTab({ instance, template, onUpdated }: SettingsTabProps)
   );
   const [backupRetentionCount, setBackupRetentionCount] = useState(
     instance.backupRetentionCount !== null ? String(instance.backupRetentionCount) : '',
+  );
+  const [restartIntervalHours, setRestartIntervalHours] = useState(
+    instance.restartIntervalHours !== null ? String(instance.restartIntervalHours) : '',
   );
   const [variables, setVariables] = useState<Record<string, string>>({ ...instance.variables });
   const [envText, setEnvText] = useState(
@@ -80,6 +84,7 @@ export function SettingsTab({ instance, template, onUpdated }: SettingsTabProps)
         crashRestart,
         backupIntervalHours: parseOptionalCount(backupIntervalHours, 'Backup interval', 8760),
         backupRetentionCount: parseOptionalCount(backupRetentionCount, 'Backup retention', 1000),
+        restartIntervalHours: parseOptionalCount(restartIntervalHours, 'Restart interval', 8760),
         variables,
         envVars,
         ports,
@@ -160,6 +165,28 @@ export function SettingsTab({ instance, template, onUpdated }: SettingsTabProps)
           Applies to manual backups too - GameDock checks schedules every few minutes, so a backup
           may run a little after it's technically due. Old backups beyond the keep count are deleted
           right after each new one succeeds.
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>Scheduled restart</h3>
+        <div className="form-row">
+          <label>Restart every N hours while running (blank = disabled)</label>
+          <input
+            value={restartIntervalHours}
+            onChange={(e) => setRestartIntervalHours(e.target.value)}
+            disabled={!canEdit}
+            placeholder="e.g. 24"
+            style={{ width: 120 }}
+          />
+        </div>
+        <div className="field-hint">
+          Only restarts while the server is already running - an installed-but-stopped server stays
+          stopped. The clock starts fresh (no immediate restart) whenever this is turned on or
+          changed, then resets on every restart, scheduled or manual.
+          {instance.lastScheduledRestartAt && (
+            <> Clock last reset: {formatDate(instance.lastScheduledRestartAt)}.</>
+          )}
         </div>
       </div>
 

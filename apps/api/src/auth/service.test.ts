@@ -10,6 +10,7 @@ import type {
   WebauthnCredentialRepository,
   WebauthnCredentialRow,
 } from '../db/repositories/webauthnCredentials.js';
+import type { ApiTokenRepository, ApiTokenRow } from '../db/repositories/apiTokens.js';
 
 function fakeUsers(initial: UserRow[] = []): UserRepository {
   const rows = new Map(initial.map((r) => [r.id, r]));
@@ -116,13 +117,54 @@ function fakeWebauthnCredentials(
   } as unknown as WebauthnCredentialRepository;
 }
 
-/** Matches the real constructor's 4 collaborators; passkey ceremony tests below only exercise the guard clauses that don't need a real signed WebAuthn response. */
+function fakeApiTokens(initial: ApiTokenRow[] = []): ApiTokenRepository {
+  const rows = new Map(initial.map((r) => [r.id, r]));
+  return {
+    create: async (params: {
+      userId: string;
+      name: string;
+      tokenHash: string;
+      expiresAt: string | null;
+    }) => {
+      const row: ApiTokenRow = {
+        id: randomUUID(),
+        user_id: params.userId,
+        name: params.name,
+        token_hash: params.tokenHash,
+        created_at: new Date().toISOString(),
+        last_used_at: null,
+        expires_at: params.expiresAt,
+      };
+      rows.set(row.id, row);
+      return row;
+    },
+    listForUser: async (userId: string) => [...rows.values()].filter((r) => r.user_id === userId),
+    findByTokenHash: async (tokenHash: string) =>
+      [...rows.values()].find((r) => r.token_hash === tokenHash),
+    updateLastUsed: async (id: string) => {
+      const row = rows.get(id);
+      if (row) row.last_used_at = new Date().toISOString();
+    },
+    deleteForUser: async (userId: string, id: string) => {
+      const row = rows.get(id);
+      if (!row || row.user_id !== userId) return { changes: 0 };
+      rows.delete(id);
+      return { changes: 1 };
+    },
+    deleteAllForUser: async (userId: string) => {
+      for (const [id, row] of rows) if (row.user_id === userId) rows.delete(id);
+    },
+  } as unknown as ApiTokenRepository;
+}
+
+/** Matches the real constructor's 5 collaborators; passkey ceremony tests below only exercise the guard clauses that don't need a real signed WebAuthn response. */
 function makeService(
   users: UserRepository,
   sessions: SessionRepository,
   webauthnCredentials: WebauthnCredentialRepository = fakeWebauthnCredentials(),
+  apiTokens: ApiTokenRepository = fakeApiTokens(),
 ): AuthService {
-  return new AuthService(users, sessions, webauthnCredentials, {
+  return new AuthService(users, sessions, webauthnCredentials, apiTokens, {
     rpId: 'localhost',
     origin: 'http://localhost:5173',
   });
@@ -343,6 +385,57 @@ describe('AuthService recovery codes', () => {
     await expect(service.completeTotpLogin(outcome.challengeToken, firstBatch[0])).rejects.toThrow(
       /Invalid or already-used recovery code/,
     );
+  });
+});
+
+describe('AuthService API tokens', () => {
+  it('creates a token and validates it back to the owning user', async () => {
+    const user = await makeUser();
+    const service = makeService(fakeUsers([user]), fakeSessions());
+
+    const { token, dto } = await service.createApiToken(user.id, 'CI script', null);
+    expect(token).toMatch(/^gd_/);
+    expect(dto.name).toBe('CI script');
+    expect(dto.expiresAt).toBeNull();
+
+    const session = await service.validateApiToken(token);
+    expect(session?.user.id).toBe(user.id);
+    expect(session?.session).toBeNull();
+  });
+
+  it('rejects a garbage or unknown token', async () => {
+    const user = await makeUser();
+    const service = makeService(fakeUsers([user]), fakeSessions());
+    await service.createApiToken(user.id, 'CI script', null);
+
+    expect(await service.validateApiToken('not-a-real-token')).toBeNull();
+    expect(await service.validateApiToken('gd_wrongvalueentirely')).toBeNull();
+  });
+
+  it('rejects an expired token', async () => {
+    const user = await makeUser();
+    const service = makeService(fakeUsers([user]), fakeSessions());
+
+    const { token } = await service.createApiToken(user.id, 'Short-lived', -1);
+    expect(await service.validateApiToken(token)).toBeNull();
+  });
+
+  it('cannot revoke another user’s token by id', async () => {
+    const alice = await makeUser({ username: 'alice' });
+    const bob = await makeUser({ username: 'bob' });
+    const service = makeService(fakeUsers([alice, bob]), fakeSessions());
+
+    const { dto } = await service.createApiToken(alice.id, 'Alice token', null);
+    await expect(service.removeApiToken(bob.id, dto.id)).rejects.toThrow(/not found/i);
+  });
+
+  it('revokes its own token, and it stops validating afterward', async () => {
+    const user = await makeUser();
+    const service = makeService(fakeUsers([user]), fakeSessions());
+
+    const { token, dto } = await service.createApiToken(user.id, 'CI script', null);
+    await service.removeApiToken(user.id, dto.id);
+    expect(await service.validateApiToken(token)).toBeNull();
   });
 });
 

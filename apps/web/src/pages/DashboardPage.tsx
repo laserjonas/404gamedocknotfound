@@ -1,15 +1,24 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { AuditLogDto, InstanceDto, SystemStatsDto } from '@gamedock/shared';
+import type {
+  AuditLogDto,
+  InstanceDto,
+  SystemMetricsSampleDto,
+  SystemStatsDto,
+} from '@gamedock/shared';
 import { api } from '../api';
 import { useGameDockEvents } from '../hooks';
 import { StatusBadge } from '../components/StatusBadge';
+import { Sparkline } from '../components/Sparkline';
 import { formatBytes, formatDate, formatDuration } from '../format';
+
+const METRICS_HISTORY_REFRESH_MS = 60_000;
 
 export function DashboardPage() {
   const [stats, setStats] = useState<SystemStatsDto | null>(null);
   const [instances, setInstances] = useState<InstanceDto[]>([]);
   const [events, setEvents] = useState<AuditLogDto[]>([]);
+  const [metricsHistory, setMetricsHistory] = useState<SystemMetricsSampleDto[]>([]);
 
   const refresh = useCallback(() => {
     api
@@ -37,6 +46,20 @@ export function DashboardPage() {
     return () => clearInterval(timer);
   }, [refresh]);
 
+  useEffect(() => {
+    const loadHistory = () => {
+      api
+        .get<SystemMetricsSampleDto[]>('/api/system/stats/history')
+        .then(setMetricsHistory)
+        .catch(() => {});
+    };
+    loadHistory();
+    // A new sample only lands server-side every 5 minutes - refresh less
+    // often than the live stats poll above.
+    const timer = setInterval(loadHistory, METRICS_HISTORY_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, []);
+
   useGameDockEvents((event) => {
     if (event.kind === 'instance_status') {
       setInstances((prev) =>
@@ -49,6 +72,8 @@ export function DashboardPage() {
   });
 
   const memPercent = stats ? (stats.memory.usedBytes / stats.memory.totalBytes) * 100 : 0;
+  const cpuHistory = metricsHistory.map((s) => s.cpuPercent);
+  const memHistory = metricsHistory.map((s) => (s.memoryUsedBytes / s.memoryTotalBytes) * 100);
 
   return (
     <div>
@@ -62,6 +87,7 @@ export function DashboardPage() {
             <div className="meter-fill" style={{ width: `${stats?.cpu.usagePercent ?? 0}%` }} />
           </div>
           <div className="stat-sub">{stats ? `${stats.cpu.cores} cores` : ''}</div>
+          {cpuHistory.length > 1 && <Sparkline className="stat-sparkline" values={cpuHistory} />}
         </div>
         <div className="card stat-card">
           <div className="stat-label">Memory</div>
@@ -74,6 +100,7 @@ export function DashboardPage() {
               ? `${formatBytes(stats.memory.usedBytes)} / ${formatBytes(stats.memory.totalBytes)}`
               : ''}
           </div>
+          {memHistory.length > 1 && <Sparkline className="stat-sparkline" values={memHistory} />}
         </div>
         <div className="card stat-card">
           <div className="stat-label">Disk</div>

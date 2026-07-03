@@ -38,6 +38,10 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
     };
   });
 
+  app.get('/api/system/stats/history', { preHandler: requireRole('viewer') }, async () => {
+    return ctx.metricsHistory.recent();
+  });
+
   app.get('/api/system/dependencies', { preHandler: requireRole('viewer') }, async () => {
     return checkDependencies(ctx.config.steamcmdPath);
   });

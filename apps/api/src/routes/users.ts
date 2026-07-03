@@ -26,6 +26,8 @@ const patchUserSchema = z.object({
   resetTotp: z.literal(true).optional(),
   /** Admin recovery: remove all passkeys from an account that's lost every registered device. */
   resetPasskeys: z.literal(true).optional(),
+  /** Admin recovery: revoke all API tokens for an account whose token may have leaked. */
+  resetApiTokens: z.literal(true).optional(),
 });
 
 export function registerUserRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -101,6 +103,10 @@ export function registerUserRoutes(app: FastifyInstance, ctx: AppContext): void 
     if (patch.resetPasskeys) {
       await ctx.auth.removeAllPasskeysForUser(id);
       changes.push('passkeys reset by admin');
+    }
+    if (patch.resetApiTokens) {
+      await ctx.auth.removeAllApiTokensForUser(id);
+      changes.push('API tokens reset by admin');
     }
 
     await ctx.repos.users.update(id, update);

@@ -32,6 +32,7 @@ const updateSchema = z.object({
   crashRestart: z.boolean().optional(),
   backupIntervalHours: z.number().int().min(1).max(8760).nullable().optional(),
   backupRetentionCount: z.number().int().min(1).max(1000).nullable().optional(),
+  restartIntervalHours: z.number().int().min(1).max(8760).nullable().optional(),
 });
 
 const commandSchema = z.object({

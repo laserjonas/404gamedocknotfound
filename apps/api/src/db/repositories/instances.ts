@@ -17,6 +17,8 @@ export interface InstanceRow {
   crash_restart: number;
   backup_interval_hours: number | null;
   backup_retention_count: number | null;
+  restart_interval_hours: number | null;
+  last_scheduled_restart_at: string | null;
   linux_username: string | null;
   linux_uid: number | null;
   created_at: string;
@@ -88,6 +90,8 @@ export class InstanceRepository {
       crashRestart: boolean;
       backupIntervalHours: number | null;
       backupRetentionCount: number | null;
+      restartIntervalHours: number | null;
+      lastScheduledRestartAt: string | null;
       linuxUsername: string | null;
       linuxUid: number | null;
     }>,
@@ -106,6 +110,8 @@ export class InstanceRepository {
       ['crashRestart', 'crash_restart', (v) => (v ? 1 : 0)],
       ['backupIntervalHours', 'backup_interval_hours', (v) => v],
       ['backupRetentionCount', 'backup_retention_count', (v) => v],
+      ['restartIntervalHours', 'restart_interval_hours', (v) => v],
+      ['lastScheduledRestartAt', 'last_scheduled_restart_at', (v) => v],
       ['linuxUsername', 'linux_username', (v) => v],
       ['linuxUid', 'linux_uid', (v) => v],
     ];
