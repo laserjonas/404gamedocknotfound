@@ -228,9 +228,30 @@ async function main(): Promise<void> {
       );
 
       const rows = await instances.list();
-      const pending = rows.filter((row) => !row.linux_username);
+      const needsMigration = rows.filter((row) => !row.linux_username);
+      // Refusing a running instance isn't just caution: migrating one out
+      // from under itself actively breaks it. Reattachment for an isolated
+      // instance matches by uid, so the next restart would see the
+      // still-running (old, gamedock-owned) process, conclude the uid
+      // doesn't match its newly-expected dedicated user, mark the instance
+      // "stopped" in the DB despite the real process being very much alive,
+      // and then happily spawn a second, duplicate process on the next
+      // Start - exactly the split-brain this guard exists to prevent.
+      const active = new Set(['running', 'starting', 'stopping']);
+      const running = needsMigration.filter((row) => active.has(row.status));
+      const pending = needsMigration.filter((row) => !active.has(row.status));
+      if (running.length > 0) {
+        console.log(
+          `Skipping ${running.length} instance(s) that are currently running - stop them first, then re-run this command:`,
+        );
+        for (const row of running) console.log(`  ${row.name} (${row.id})`);
+      }
       if (pending.length === 0) {
-        console.log('All instances already have a dedicated Linux user provisioned.');
+        console.log(
+          running.length > 0
+            ? 'No stopped instances left to migrate.'
+            : 'All instances already have a dedicated Linux user provisioned.',
+        );
         await db.close();
         break;
       }

@@ -140,7 +140,17 @@ sudo bash scripts/deploy.sh   # installs the sudoers rule + helper script,
                                # and picks up NoNewPrivileges=false
 ```
 
-Then enable it and provision existing instances:
+**Stop every running instance first.** Migrating a currently-running
+instance breaks it: reattachment for an isolated instance matches by uid, so
+on the next restart GameDock would see the still-running (old,
+`gamedock`-owned) process, conclude it doesn't match the newly-expected
+dedicated user, mark the instance "stopped" despite the real process being
+alive, and then spawn a second, duplicate process the next time you hit
+Start - two processes fighting over the same port and save files. The
+migration command refuses (skips, with a warning) any instance whose status
+isn't stopped, but stop them via the UI first regardless.
+
+Then enable it and provision existing (stopped) instances:
 
 ```bash
 echo 'GAMEDOCK_INSTANCE_USER_ISOLATION=true' | sudo tee -a /opt/gamedock/.env
@@ -150,8 +160,10 @@ sudo -u gamedock bash -c 'cd /opt/gamedock && pnpm gamedock instances:migrate-us
 ```
 
 The migration command is idempotent and safe to re-run - it only touches
-instances that don't have a dedicated user yet. New instances created after
-`GAMEDOCK_INSTANCE_USER_ISOLATION=true` is set get one automatically.
+stopped instances that don't have a dedicated user yet. Start each migrated
+instance from the UI afterward to pick up its new user. New instances
+created after `GAMEDOCK_INSTANCE_USER_ISOLATION=true` is set get one
+automatically.
 
 ## Backups of GameDock itself
 
