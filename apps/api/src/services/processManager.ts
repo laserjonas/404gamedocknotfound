@@ -94,25 +94,54 @@ function isPidAlive(pid: number): boolean {
   return existsSync(`/proc/${pid}`);
 }
 
-/** Scans /proc for a process whose parent is parentPid. Readable across uids without sudo. */
-function findChildPid(parentPid: number): number | null {
+/** Scans /proc once into a pid -> direct-children map. Readable across uids without sudo. */
+function buildProcessChildMap(): Map<number, number[]> {
+  const children = new Map<number, number[]>();
   let entries: string[];
   try {
     entries = readdirSync('/proc');
   } catch {
-    return null;
+    return children;
   }
   for (const entry of entries) {
     if (!/^\d+$/.test(entry)) continue;
     try {
       const status = readFileSync(`/proc/${entry}/status`, 'utf8');
       const match = /^PPid:\s+(\d+)/m.exec(status);
-      if (match && Number(match[1]) === parentPid) return Number(entry);
+      if (!match) continue;
+      const ppid = Number(match[1]);
+      const pid = Number(entry);
+      const list = children.get(ppid);
+      if (list) list.push(pid);
+      else children.set(ppid, [pid]);
     } catch {
       continue;
     }
   }
-  return null;
+  return children;
+}
+
+/**
+ * Finds the deepest single-child descendant of rootPid. Many game-server
+ * wrapper scripts don't exec-replace themselves - they fork the real binary
+ * as a child (sudo -> sh -> the actual server), so the immediate child of
+ * sudo is just the wrapper, not the process that needs to be tracked and
+ * signaled. Stops at a fork point (a process with more than one child)
+ * since there's no way to safely disambiguate further.
+ */
+function findDeepestChildPid(rootPid: number): number | null {
+  const childMap = buildProcessChildMap();
+  let currentPid = rootPid;
+  let result: number | null = null;
+  for (;;) {
+    const kids = childMap.get(currentPid);
+    const firstKid = kids?.[0];
+    if (!kids || firstKid === undefined || kids.length === 0) break;
+    result = firstKid;
+    if (kids.length > 1) break;
+    currentPid = firstKid;
+  }
+  return result;
 }
 
 /**
@@ -358,14 +387,19 @@ export class ProcessManager {
   /**
    * Resolves the real game-server pid after a sudo-wrapped spawn (Debian's
    * sudo forks a monitor rather than exec-replacing itself - verified live).
-   * The child typically appears within ~65ms; polls briefly before giving up.
+   * A descendant typically appears within ~65ms; polls briefly before
+   * giving up. Once found, keeps re-checking for a bit before settling:
+   * many game-server wrapper scripts don't exec-replace themselves either
+   * (they fork the real binary as a child - sudo -> sh -> the actual
+   * server), so the first descendant seen is often just a shell wrapper,
+   * not the process that actually needs to be tracked and signaled.
    */
   private resolveSudoChildPid(sudoPid: number, attemptsLeft = 40): Promise<number | null> {
     return new Promise((resolve) => {
       const attempt = (remaining: number) => {
-        const childPid = findChildPid(sudoPid);
+        const childPid = findDeepestChildPid(sudoPid);
         if (childPid !== null) {
-          resolve(childPid);
+          this.settleDeepestChildPid(sudoPid, childPid, 0).then(resolve);
         } else if (remaining <= 0) {
           resolve(null);
         } else {
@@ -373,6 +407,29 @@ export class ProcessManager {
         }
       };
       attempt(attemptsLeft);
+    });
+  }
+
+  /** Waits until findDeepestChildPid stops descending further for a few consecutive checks. */
+  private settleDeepestChildPid(
+    sudoPid: number,
+    lastSeen: number,
+    stableChecks: number,
+  ): Promise<number> {
+    const REQUIRED_STABLE_CHECKS = 3;
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        const current = findDeepestChildPid(sudoPid) ?? lastSeen;
+        if (current === lastSeen) {
+          if (stableChecks >= REQUIRED_STABLE_CHECKS) {
+            resolve(current);
+          } else {
+            this.settleDeepestChildPid(sudoPid, current, stableChecks + 1).then(resolve);
+          }
+        } else {
+          this.settleDeepestChildPid(sudoPid, current, 0).then(resolve);
+        }
+      }, 100);
     });
   }
 
