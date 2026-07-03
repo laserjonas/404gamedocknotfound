@@ -72,7 +72,16 @@ The last active admin cannot be demoted, disabled or deleted.
 
 Logins, user management, instance lifecycle actions, console commands, file
 writes/uploads/deletes and backup operations are written to the `audit_logs` table
-(Settings → Audit log, admin only).
+(Settings → Audit log, admin only). Entries older than `GAMEDOCK_AUDIT_RETENTION_DAYS`
+(default 180) are pruned automatically once a day; set it to `0` to keep the
+log forever.
+
+### Login rate limiting
+
+Failed logins are throttled per IP+username (5 attempts per 15 minutes,
+in-memory) - repeated failures return the same generic "invalid username or
+password" error as a first attempt, so this isn't visible to an attacker
+beyond the added delay.
 
 ## What you must do
 

@@ -45,6 +45,8 @@ const envSchema = z.object({
   GAMEDOCK_APP_DIR: z.string().optional(),
   GAMEDOCK_UPDATE_REPO_URL: z.string().default(''),
   GAMEDOCK_UPDATE_BRANCH: z.string().default('main'),
+  /** 0 disables pruning and keeps the audit log forever. */
+  GAMEDOCK_AUDIT_RETENTION_DAYS: z.coerce.number().int().min(0).max(3650).default(180),
 });
 
 export interface AppConfig {
@@ -65,6 +67,7 @@ export interface AppConfig {
   appDir: string;
   updateRepoUrl: string;
   updateBranch: string;
+  auditRetentionDays: number;
 }
 
 const INSECURE_SECRETS = new Set(['dev-only-insecure-secret', 'change-me-to-a-long-random-string']);
@@ -119,6 +122,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     appDir: e.GAMEDOCK_APP_DIR ? resolve(configBaseDir, e.GAMEDOCK_APP_DIR) : process.cwd(),
     updateRepoUrl: e.GAMEDOCK_UPDATE_REPO_URL,
     updateBranch: e.GAMEDOCK_UPDATE_BRANCH,
+    auditRetentionDays: e.GAMEDOCK_AUDIT_RETENTION_DAYS,
   };
 }
 

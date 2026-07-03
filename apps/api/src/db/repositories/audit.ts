@@ -61,4 +61,9 @@ export class AuditRepository {
       limit,
     ]);
   }
+
+  /** Deletes entries older than the cutoff. Returns the number of rows removed. */
+  async pruneOlderThan(cutoffIso: string): Promise<number> {
+    return (await this.db.run('DELETE FROM audit_logs WHERE created_at < ?', [cutoffIso])).changes;
+  }
 }

@@ -27,6 +27,7 @@ import { toAuditDto } from './db/repositories/audit.js';
 const CRASH_RESTART_LIMITS = { maxRestarts: 4, windowMs: 5 * 60 * 1000 };
 const CRASH_RESTART_DELAY_MS = 5000;
 const BACKUP_SCHEDULER_INTERVAL_MS = 15 * 60 * 1000;
+const AUDIT_RETENTION_SCAN_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export interface AppContext {
   config: AppConfig;
@@ -159,6 +160,29 @@ export async function createContext(
   );
   sessionCleanup.unref();
 
+  // Audit log retention: prune entries older than the configured window so
+  // the table doesn't grow forever. 0 means "keep everything".
+  const auditRetentionScan = () => {
+    if (config.auditRetentionDays <= 0) return;
+    const cutoff = new Date(Date.now() - config.auditRetentionDays * 24 * 60 * 60 * 1000);
+    void repos.audit
+      .pruneOlderThan(cutoff.toISOString())
+      .then((count) => {
+        if (count > 0) {
+          logger.info(
+            { count, retentionDays: config.auditRetentionDays },
+            'pruned old audit log entries',
+          );
+        }
+      })
+      .catch((err) =>
+        logger.warn({ err: (err as Error).message }, 'audit log retention scan failed'),
+      );
+  };
+  const auditRetentionInterval = setInterval(auditRetentionScan, AUDIT_RETENTION_SCAN_INTERVAL_MS);
+  auditRetentionInterval.unref();
+  queueMicrotask(auditRetentionScan);
+
   // Scheduled backups: enqueue a backup for any installed instance whose
   // configured interval has elapsed since its last backup.
   const runBackupScan = () => {
@@ -241,6 +265,7 @@ export async function createContext(
     async shutdown() {
       clearInterval(sessionCleanup);
       clearInterval(backupScheduler);
+      clearInterval(auditRetentionInterval);
       unsubscribeCrashRestart();
       await processes.shutdownAll();
       await db.close();
