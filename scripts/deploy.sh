@@ -72,8 +72,9 @@ systemctl enable gamedock
 
 echo "==> Installing per-instance user isolation helper (optional, opt-in feature)"
 groupadd --system gamedock-instances 2>/dev/null || true
-install -m 0750 -o root -g root "${APP_DIR}/scripts/gamedock-instance-user" \
-  /opt/gamedock/scripts/gamedock-instance-user
+# Already rsynced into place by the copy above - just fix ownership/mode.
+chown root:root "${APP_DIR}/scripts/gamedock-instance-user"
+chmod 0750 "${APP_DIR}/scripts/gamedock-instance-user"
 SUDOERS_TMP="$(mktemp)"
 cat >"${SUDOERS_TMP}" <<SUDOEOF
 # Managed by GameDock (scripts/deploy.sh) - do not edit by hand.

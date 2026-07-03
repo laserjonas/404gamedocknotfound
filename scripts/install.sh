@@ -22,7 +22,7 @@ echo "==> Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends \
-  ca-certificates curl gnupg git rsync \
+  ca-certificates curl gnupg git rsync sudo \
   tar unzip xz-utils \
   python3 \
   lib32gcc-s1 lib32stdc++6
