@@ -38,7 +38,7 @@ typecheck, or test failures yourself - report them.
 
 ## Fresh-clone verification (only when explicitly asked, e.g. "verify before push")
 
-Local working-tree checks prove nothing about whether a *commit* is complete - an explicit
+Local working-tree checks prove nothing about whether a _commit_ is complete - an explicit
 `git add -A -- <paths>` can silently omit a file that's still sitting uncommitted in the working
 tree, and the build then only "works" locally. Before confirming a commit is push-ready:
 
