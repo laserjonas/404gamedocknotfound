@@ -29,6 +29,7 @@ Thumbs.db
 coverage/
 
 # local tooling state
-.claude/
+.claude/*
+!.claude/agents/
 ssh-login
 gamedock-login
