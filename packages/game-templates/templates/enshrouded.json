@@ -1,0 +1,89 @@
+{
+  "id": "enshrouded",
+  "name": "Enshrouded Dedicated Server",
+  "description": "Survival action RPG dedicated server, installed via SteamCMD (anonymous). Windows-only - Keen Games has not shipped a native Linux server binary.",
+  "installMethod": "steamcmd",
+  "steam": {
+    "appId": 2278520,
+    "anonymous": true
+  },
+  "os": ["windows"],
+  "ports": [
+    { "name": "Game", "port": 15636, "protocol": "both" },
+    { "name": "Query", "port": 15637, "protocol": "both" }
+  ],
+  "start": {
+    "executable": "./enshrouded_server.exe",
+    "args": [],
+    "workingDir": "."
+  },
+  "env": {},
+  "stop": {
+    "method": "sigint",
+    "timeoutSeconds": 60
+  },
+  "console": {
+    "supportsInput": false
+  },
+  "configFiles": [
+    {
+      "path": "enshrouded_server.json",
+      "description": "Main server config (name, password, ports, slot count, save/log dirs) - written by GameDock at install time from the variables below"
+    },
+    {
+      "path": "savegame",
+      "description": "World save data, created after first run",
+      "createdByServer": true
+    },
+    {
+      "path": "logs",
+      "description": "Server logs, created after first run",
+      "createdByServer": true
+    }
+  ],
+  "setupFiles": [
+    {
+      "path": "enshrouded_server.json",
+      "content": "{\n  \"name\": \"{{SERVER_NAME}}\",\n  \"password\": \"{{SERVER_PASSWORD}}\",\n  \"saveDirectory\": \"./savegame\",\n  \"logDirectory\": \"./logs\",\n  \"ip\": \"0.0.0.0\",\n  \"gamePort\": {{GAME_PORT}},\n  \"queryPort\": {{QUERY_PORT}},\n  \"slotCount\": {{SLOT_COUNT}}\n}\n"
+    }
+  ],
+  "variables": [
+    {
+      "key": "SERVER_NAME",
+      "label": "Server name",
+      "default": "GameDock Enshrouded",
+      "required": true,
+      "pattern": "[A-Za-z0-9 _.,!?'-]{1,64}"
+    },
+    {
+      "key": "SERVER_PASSWORD",
+      "label": "Server password (blank = no password)",
+      "default": "",
+      "required": false,
+      "secret": true,
+      "pattern": "[A-Za-z0-9 _.,!?'-]{0,64}"
+    },
+    {
+      "key": "SLOT_COUNT",
+      "label": "Max players (1-16)",
+      "default": "16",
+      "required": true,
+      "pattern": "[0-9]{1,2}"
+    },
+    {
+      "key": "GAME_PORT",
+      "label": "Game port (TCP+UDP)",
+      "default": "15636",
+      "required": true,
+      "pattern": "[0-9]{2,5}"
+    },
+    {
+      "key": "QUERY_PORT",
+      "label": "Query port (TCP+UDP, Steam server list)",
+      "default": "15637",
+      "required": true,
+      "pattern": "[0-9]{2,5}"
+    }
+  ],
+  "notes": "Windows-only: the dedicated server ships as enshrouded_server.exe with no native Linux build, so this template can only be installed on a Windows-hosted GameDock instance, not this project's standard Debian deployment. GameDock writes enshrouded_server.json from the variables above on first install only - setup files aren't rewritten on Update files, so change name/password/port/slots afterwards by editing that file directly (or wipe the instance for a clean re-setup). Base-building and container-access permissions are governed by an optional 'userGroups' array in enshrouded_server.json that this template does not set - add it yourself (see Keen Games' Server Roles Configuration docs) for tiered admin/friend/guest roles; every player can explore, fight and gather regardless of group. Both the game and query port need TCP and UDP forwarded. There's no documented console command to stop the server gracefully, so GameDock sends SIGINT and force-kills it after the timeout if it's still running - avoid killing the process outside GameDock to prevent save corruption."
+}

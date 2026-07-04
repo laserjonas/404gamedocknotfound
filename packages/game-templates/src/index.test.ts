@@ -147,6 +147,7 @@ describe('built-in templates', () => {
       'ark-survival-evolved',
       'barotrauma',
       'counter-strike-2',
+      'enshrouded',
       'factorio',
       'garrys-mod',
       'insurgency-sandstorm',
