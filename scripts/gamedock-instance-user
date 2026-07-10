@@ -7,6 +7,7 @@
 # docs/SECURITY.md "Process isolation".
 #
 # usage: gamedock-instance-user {create|delete|chown} <instance-uuid>
+#        gamedock-instance-user clusterdir
 set -euo pipefail
 
 if [[ $EUID -ne 0 ]]; then
@@ -23,7 +24,7 @@ INSTANCE_ID_RE='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 USERNAME_RE='^gd-[0-9]{5,}$'
 
 usage() {
-  echo "usage: $0 {create|delete|chown} <instance-uuid>" >&2
+  echo "usage: $0 {create|delete|chown} <instance-uuid> | $0 clusterdir" >&2
   exit 1
 }
 
@@ -124,10 +125,20 @@ cmd_chown() {
   echo "${username} $(id -u "$username")"
 }
 
-[[ $# -eq 2 ]] || usage
-case "$1" in
-  create) cmd_create "$2" ;;
-  delete) cmd_delete "$2" ;;
-  chown) cmd_chown "$2" ;;
+# Shared cluster-data directory (e.g. ARK cluster transfers): writable by
+# gamedock and by every per-instance user via the common gamedock-instances
+# group. Idempotent; called at panel startup when isolation is enabled.
+cmd_clusterdir() {
+  local dir="${DATA_DIR}/clusters"
+  mkdir -p "$dir"
+  chown "${GAMEDOCK_USER}:gamedock-instances" "$dir"
+  chmod 2770 "$dir"
+}
+
+case "${1:-}" in
+  create) [[ $# -eq 2 ]] || usage; cmd_create "$2" ;;
+  delete) [[ $# -eq 2 ]] || usage; cmd_delete "$2" ;;
+  chown) [[ $# -eq 2 ]] || usage; cmd_chown "$2" ;;
+  clusterdir) [[ $# -eq 1 ]] || usage; cmd_clusterdir ;;
   *) usage ;;
 esac

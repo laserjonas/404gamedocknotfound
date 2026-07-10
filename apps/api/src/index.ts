@@ -29,6 +29,14 @@ async function main(): Promise<void> {
   await app.listen({ host: config.host, port: config.port });
   logger.info(`GameDock Manager listening on http://${config.host}:${config.port}`);
 
+  // With isolation on, the shared cluster dir (ARK cluster transfers) must
+  // be group-writable for the per-instance users - fixed up via the root
+  // helper, best-effort. Without isolation the plain dir from loadConfig()
+  // is already writable by the service user.
+  if (ctx.linuxUsers.enabled) {
+    await ctx.linuxUsers.ensureClusterDir();
+  }
+
   // Start instances flagged for auto-start (also clears stale statuses).
   await ctx.instances.autoStartAll();
 

@@ -25,7 +25,11 @@ import type { LinuxUserService } from './linuxUsers.js';
 import type { AppConfig } from '../config.js';
 import type { Logger } from '../logger.js';
 import { TemplateService as TemplateServiceStatic } from './templates.js';
-import { runSteamCmdInstall } from './steamcmd.js';
+import {
+  installSteamClientLibrary,
+  provisionAutoManagedMods,
+  runSteamCmdInstall,
+} from './steamcmd.js';
 import { markExecutable, runUrlInstall } from './urlInstaller.js';
 import { resolveMinecraftServerJarUrl } from './mojang.js';
 import { ensureJavaRuntime } from './javaRuntime.js';
@@ -37,7 +41,7 @@ import {
 } from './variables.js';
 import { resolveSafePath } from '../utils/safePath.js';
 import { Mutex } from '../utils/mutex.js';
-import { mergeProperties } from '../utils/properties.js';
+import { mergeIni, mergeProperties } from '../utils/properties.js';
 import {
   claimedPortSet,
   findPortConflicts,
@@ -496,7 +500,12 @@ export class InstanceService {
         let resolvedJavaBin: string | undefined;
         const variables = {
           ...(await this.repo.getVariables(id)),
-          ...builtinVariables({ instanceDir: dir, instanceId: id, instanceName: row.name }),
+          ...builtinVariables({
+            instanceDir: dir,
+            instanceId: id,
+            instanceName: row.name,
+            clusterDir: this.config.clusterDir,
+          }),
         };
 
         if (template.installMethod === 'steamcmd') {
@@ -510,6 +519,27 @@ export class InstanceService {
             onLog: (line) => handle.log(line),
             onProgress: (percent, phase) => handle.setProgress(percent, phase),
           });
+
+          if (process.platform === 'linux') {
+            // The HOME the game will actually run with: the instance dir for
+            // isolated instances (see processManager's env wrapper), the
+            // shared service HOME otherwise.
+            const gameHome = row.linux_username ? dir : (process.env.HOME ?? dir);
+            if (steam.installClientLibrary) {
+              await installSteamClientLibrary({
+                homeDir: gameHome,
+                steamcmdPath: this.config.steamcmdPath,
+                onLog: (line) => handle.log(line),
+              });
+            }
+            if (steam.autoManagedMods) {
+              await provisionAutoManagedMods({
+                instanceDir: dir,
+                homeDir: gameHome,
+                onLog: (line) => handle.log(line),
+              });
+            }
+          }
         } else if (template.installMethod === 'url') {
           const urlInstall = template.urlInstall!;
           let url: string;
@@ -544,13 +574,17 @@ export class InstanceService {
         for (const setupFile of template.setupFiles) {
           const target = resolveSafePath(dir, setupFile.path);
           const content = substitutePlaceholders(setupFile.content, variables);
-          if (setupFile.merge === 'properties' && existsSync(target)) {
+          if (setupFile.merge !== undefined && existsSync(target)) {
             // Merge-mode files assert single keys (e.g. server-port) without
             // clobbering a file the game or a modpack owns - and unlike plain
             // setup files they re-apply on update, so a changed port variable
             // reaches the config via "Update files".
             const existing = await readFile(target, 'utf8');
-            await writeFile(target, mergeProperties(existing, content), 'utf8');
+            const merged =
+              setupFile.merge === 'ini'
+                ? mergeIni(existing, content)
+                : mergeProperties(existing, content);
+            await writeFile(target, merged, 'utf8');
             handle.log(`Merged ${setupFile.path}`);
             continue;
           }
@@ -562,6 +596,15 @@ export class InstanceService {
 
         const executable = substitutePlaceholders(template.start.executable, variables);
         await markExecutable(dir, executable);
+
+        // Installs run as the gamedock service user, so on an isolated
+        // instance every installed file/dir is owned by gamedock - and the
+        // dedicated user can't write inside them (e.g. ARK creating
+        // ShooterGame/Saved). Recursive re-chown hands the tree over.
+        if (row.linux_username) {
+          handle.log(`Fixing file ownership for isolated user ${row.linux_username}...`);
+          await this.linuxUsers.repair(id);
+        }
 
         await this.repo.update(id, {
           installed: true,
@@ -618,6 +661,7 @@ export class InstanceService {
       instanceDir: dir,
       instanceId: id,
       instanceName: row.name,
+      clusterDir: this.config.clusterDir,
       variables,
       instanceEnv,
       overrideExecutable: row.start_executable,
@@ -763,6 +807,12 @@ export class InstanceService {
         instanceDir: this.instanceDir(id),
         onLog: (line) => handle.log(line),
       });
+      // Restores extract as the gamedock service user - same ownership
+      // problem as installs on an isolated instance (see enqueueInstall).
+      if (row.linux_username) {
+        handle.log(`Fixing file ownership for isolated user ${row.linux_username}...`);
+        await this.linuxUsers.repair(id);
+      }
       await this.repo.update(id, { installed: true, status: 'stopped' });
       handle.log(`Restore of "${row.name}" finished`);
     });
@@ -789,6 +839,7 @@ export class InstanceService {
         instanceDir: dir,
         instanceId: row.id,
         instanceName: row.name,
+        clusterDir: this.config.clusterDir,
         variables,
         instanceEnv,
         overrideExecutable: row.start_executable,

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Logger } from '../logger.js';
 
@@ -36,6 +37,13 @@ export class LinuxUserService {
   }
 
   private helperPath(): string {
+    // Preferred: the root-owned copy outside the app dir that install.sh
+    // places (and sudoers references) - the in-repo copy under appDir gets
+    // replaced by self-update running as gamedock, so a root-executable
+    // file must not live there. The appDir fallback keeps hosts working
+    // until they re-run install.sh once.
+    const system = '/usr/local/sbin/gamedock-instance-user';
+    if (existsSync(system)) return system;
     return join(this.config.appDir, 'scripts', 'gamedock-instance-user');
   }
 
@@ -90,6 +98,23 @@ export class LinuxUserService {
   async repair(instanceId: string): Promise<ProvisionedUser> {
     this.validateInstanceId(instanceId);
     return this.parseProvisionOutput(await this.run(['chown', instanceId]));
+  }
+
+  /**
+   * Makes the shared cluster-data directory writable by every per-instance
+   * user (group gamedock-instances). Best-effort: an old helper without the
+   * clusterdir subcommand logs a warning telling the admin to re-run
+   * install.sh - ARK-style cluster transfers won't work until then.
+   */
+  async ensureClusterDir(): Promise<void> {
+    try {
+      await this.run(['clusterdir']);
+    } catch (err) {
+      this.logger.warn(
+        { err: (err as Error).message },
+        'could not prepare the shared cluster directory - re-run scripts/install.sh to update the instance-user helper if cluster features are needed',
+      );
+    }
   }
 
   /** Removes the dedicated Linux user for the instance. Best-effort logged, never throws. */

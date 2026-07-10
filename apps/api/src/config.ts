@@ -76,6 +76,8 @@ export interface AppConfig {
   backupDir: string;
   logDir: string;
   runtimeDir: string;
+  /** Shared directory for cross-instance game data (e.g. ARK cluster transfers). */
+  clusterDir: string;
   databaseUrl: string;
   sessionSecret: string;
   steamcmdPath: string;
@@ -113,6 +115,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     : join(dataDir, 'backups');
   const logDir = join(dataDir, 'logs');
   const runtimeDir = join(dataDir, 'runtimes');
+  const clusterDir = join(dataDir, 'clusters');
 
   const isProduction = e.GAMEDOCK_NODE_ENV === 'production';
   if (isProduction) {
@@ -124,7 +127,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
   }
 
-  for (const dir of [dataDir, instanceDir, backupDir, logDir, runtimeDir]) {
+  for (const dir of [dataDir, instanceDir, backupDir, logDir, runtimeDir, clusterDir]) {
     mkdirSync(dir, { recursive: true });
   }
 
@@ -161,6 +164,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     backupDir,
     logDir,
     runtimeDir,
+    clusterDir,
     databaseUrl: e.GAMEDOCK_DATABASE_URL,
     sessionSecret: e.GAMEDOCK_SESSION_SECRET,
     steamcmdPath: e.GAMEDOCK_STEAMCMD_PATH,

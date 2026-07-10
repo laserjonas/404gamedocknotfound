@@ -79,6 +79,15 @@ sudo bash scripts/install.sh    # rebuilds, syncs /opt/gamedock, restarts servic
 environment variable (see [INSTALL_DEBIAN.md](INSTALL_DEBIAN.md)). Database
 migrations run automatically at service start either way.
 
+**One-time root step when updating to v0.16.0 or later** (self-update cannot
+change root-owned files): re-run `sudo bash scripts/install.sh` once. It
+applies three host-level changes shipped in 0.16.0 - `LimitNOFILE=100000` in
+the systemd unit (ARK needs it), the isolation helper moving to
+`/usr/local/sbin/gamedock-instance-user` with the sudoers rule following it
+(security fix: the old in-app location became gamedock-writable after any
+self-update), and the `clusterdir` helper subcommand that shared ARK-style
+cluster directories need under user isolation.
+
 ## Running in Docker
 
 An alternative to the bare-metal install above: `docker compose up -d` builds

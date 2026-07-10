@@ -30,6 +30,12 @@ service after adding one). `pnpm gamedock doctor` lists load errors.
     "appId": 123456, // dedicated server app id
     "anonymous": true, // only anonymous login is supported
     "extraArgs": ["-beta", "public"], // optional app_update extras
+    // optional: copy steamclient.so into the game's HOME (.steam/sdk64) after
+    // install - Steamworks servers like ARK need it or they log [S_API FAIL]
+    "installClientLibrary": true,
+    // optional: provision the embedded SteamCMD + steamapps plumbing that
+    // Unreal servers' -automanagedmods workshop support expects (ARK)
+    "autoManagedMods": true,
   },
   "urlInstall": {
     // required when installMethod = url - either "url", or "resolver" + "versionVariable"
@@ -46,9 +52,18 @@ service after adding one). `pnpm gamedock doctor` lists load errors.
   "ports": [{ "name": "Game", "port": 27015, "protocol": "udp" }],
 
   // Startup command. NEVER a shell string: executable + argv array.
+  // An arg may also be an object: it is dropped entirely when the named
+  // variable is empty - for flags that must not appear at all when their
+  // feature is off (e.g. ARK's -clusterid=...).
   "start": {
     "executable": "./server_binary", // or a PATH command like "java"
-    "args": ["-port", "{{GAME_PORT}}", "-name", "{{SERVER_NAME}}"],
+    "args": [
+      "-port",
+      "{{GAME_PORT}}",
+      "-name",
+      "{{SERVER_NAME}}",
+      { "value": "-clusterid={{CLUSTER_ID}}", "omitIfEmpty": "CLUSTER_ID" },
+    ],
     "workingDir": ".", // relative to the instance directory
   },
 
@@ -72,7 +87,9 @@ service after adding one). `pnpm gamedock doctor` lists load errors.
   // "properties" the content's KEY=value lines are merged into an existing
   // file instead (those keys replaced, everything else kept) - on updates too
   // - for asserting single keys in a file the game or a modpack owns, like
-  // the Minecraft templates' server-port in server.properties.
+  // the Minecraft templates' server-port in server.properties. "merge": "ini"
+  // is the section-aware variant for [Section]-structured files (ARK's
+  // ActiveMods in GameUserSettings.ini).
   "setupFiles": [{ "path": "eula.txt", "content": "eula={{ACCEPT_EULA}}\n" }],
 
   // User-facing settings; referenced as {{KEY}} in args/env/urls/setupFiles
@@ -96,11 +113,12 @@ service after adding one). `pnpm gamedock doctor` lists load errors.
 
 These are always available in placeholders, in addition to template variables:
 
-| Placeholder                  | Value                                   |
-| ---------------------------- | --------------------------------------- |
-| `{{GAMEDOCK_INSTANCE_DIR}}`  | Absolute path of the instance directory |
-| `{{GAMEDOCK_INSTANCE_ID}}`   | Instance UUID                           |
-| `{{GAMEDOCK_INSTANCE_NAME}}` | Instance display name                   |
+| Placeholder                  | Value                                                                                       |
+| ---------------------------- | ------------------------------------------------------------------------------------------- |
+| `{{GAMEDOCK_INSTANCE_DIR}}`  | Absolute path of the instance directory                                                     |
+| `{{GAMEDOCK_INSTANCE_ID}}`   | Instance UUID                                                                               |
+| `{{GAMEDOCK_INSTANCE_NAME}}` | Instance display name                                                                       |
+| `{{GAMEDOCK_CLUSTER_DIR}}`   | Shared cross-instance data directory (`<data>/clusters`) - e.g. ARK's `-ClusterDirOverride` |
 
 ## Rules & behavior
 

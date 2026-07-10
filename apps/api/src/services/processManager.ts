@@ -281,13 +281,30 @@ export class ProcessManager {
     const linuxUsername = input.linuxUsername ?? null;
     let proc;
     try {
+      // sudo resets the environment (env_reset, no SETENV) - template/instance
+      // env vars passed to spawn() would be stripped and HOME would point at
+      // the dedicated user's nonexistent home dir. Re-applying them through
+      // /usr/bin/env (which exec-replaces itself, so the tracked process
+      // chain is unchanged) is what actually delivers LD_LIBRARY_PATH,
+      // SteamAppId etc. to isolated game servers, with HOME anchored to the
+      // instance dir so games and steamcmd have a writable home.
       proc = linuxUsername
         ? spawn(
             'sudo',
-            ['-n', '-u', linuxUsername, '--', input.command.executable, ...input.command.args],
+            [
+              '-n',
+              '-u',
+              linuxUsername,
+              '--',
+              '/usr/bin/env',
+              `HOME=${input.instanceDir}`,
+              ...Object.entries(input.command.env).map(([key, value]) => `${key}=${value}`),
+              input.command.executable,
+              ...input.command.args,
+            ],
             {
               cwd,
-              env: { ...this.baseEnv(), ...input.command.env },
+              env: this.baseEnv(),
               shell: false,
               stdio: [stdinFd, stdoutFd, stderrFd],
               detached: true,

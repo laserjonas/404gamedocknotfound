@@ -49,6 +49,20 @@ export const gameTemplateSchema = z
         appId: z.number().int().positive(),
         anonymous: z.boolean().default(true),
         extraArgs: z.array(z.string().max(256)).max(16).optional(),
+        /**
+         * Copy steamclient.so into the game's HOME (.steam/sdk64 and sdk32)
+         * after install. Some Steamworks servers (ARK, some Source games)
+         * need it there to talk to Steam and log noisy [S_API FAIL] errors
+         * or stay unlisted without it.
+         */
+        installClientLibrary: z.boolean().optional(),
+        /**
+         * Provision the game's own workshop-mod machinery after install:
+         * a private SteamCMD copy at Engine/Binaries/ThirdParty/SteamCMD/Linux
+         * (the path Unreal servers hardcode for -automanagedmods) plus the
+         * steamapps plumbing it needs to unpack downloaded mods.
+         */
+        autoManagedMods: z.boolean().optional(),
       })
       .optional(),
     urlInstall: z
@@ -72,7 +86,24 @@ export const gameTemplateSchema = z
     ports: z.array(portSchema).max(32).default([]),
     start: z.object({
       executable: z.string().min(1).max(512),
-      args: z.array(z.string().max(2048)).max(128).default([]),
+      /**
+       * Plain string args are always passed. The object form drops the whole
+       * argument when the named variable resolves to an empty value - for
+       * flags that must not appear at all when their feature is off (e.g.
+       * ARK's -clusterid=... when no cluster is configured).
+       */
+      args: z
+        .array(
+          z.union([
+            z.string().max(2048),
+            z.object({
+              value: z.string().min(1).max(2048),
+              omitIfEmpty: variableKey,
+            }),
+          ]),
+        )
+        .max(128)
+        .default([]),
       workingDir: z.string().max(512).default('.'),
     }),
     env: z.record(z.string().max(2048)).default({}),
@@ -106,9 +137,10 @@ export const gameTemplateSchema = z
            * lines, keeping everything else). Applied on updates too, unlike
            * plain setup files which never touch an existing file on update.
            * For files the game or a modpack may legitimately own, like
-           * Minecraft's server.properties.
+           * Minecraft's server.properties. "ini" is the section-aware variant
+           * for [Section]-structured files like ARK's GameUserSettings.ini.
            */
-          merge: z.enum(['properties']).optional(),
+          merge: z.enum(['properties', 'ini']).optional(),
         }),
       )
       .max(16)

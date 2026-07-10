@@ -152,6 +152,10 @@ export interface GameTemplateDto {
     anonymous: boolean;
     /** Extra args appended to app_update, e.g. beta branches. */
     extraArgs?: string[];
+    /** Copy steamclient.so into the game's HOME (.steam/sdk64) after install. */
+    installClientLibrary?: boolean;
+    /** Provision the game's embedded SteamCMD for -automanagedmods workshop support. */
+    autoManagedMods?: boolean;
   };
   urlInstall?: {
     /** May contain {{VAR}} placeholders resolved from instance variables. Absent when "resolver" is set. */
@@ -168,7 +172,8 @@ export interface GameTemplateDto {
   ports: TemplatePortDto[];
   start: {
     executable: string;
-    args: string[];
+    /** Object args are omitted entirely when their gate variable resolves empty. */
+    args: (string | { value: string; omitIfEmpty: string })[];
     workingDir: string;
   };
   env: Record<string, string>;

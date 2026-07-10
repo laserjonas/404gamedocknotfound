@@ -46,8 +46,10 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
 
-# Game servers can be hungry; raise limits as needed.
-LimitNOFILE=65536
+# Game servers can be hungry; raise limits as needed. ARK in particular
+# refuses to run reliably below ~100k open files (its own launch scripts
+# do `ulimit -n 100000`) - game servers inherit this limit from the panel.
+LimitNOFILE=100000
 TasksMax=4096
 
 [Install]

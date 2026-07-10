@@ -225,9 +225,13 @@ systemctl enable gamedock
 
 echo "==> Installing per-instance user isolation helper (optional, opt-in feature)"
 groupadd --system gamedock-instances 2>/dev/null || true
-# Already rsynced into place by the copy above - just fix ownership/mode.
-chown root:root "${APP_DIR}/scripts/gamedock-instance-user"
-chmod 0750 "${APP_DIR}/scripts/gamedock-instance-user"
+# The sudo-as-root helper must live OUTSIDE ${APP_DIR}: the in-app self-update
+# rsyncs ${APP_DIR} as the unprivileged gamedock user, which would replace a
+# root-owned helper there with a gamedock-writable copy - a privilege
+# escalation, since sudoers allows executing that path as root. A root-owned
+# copy under /usr/local/sbin is out of the self-update's reach; it only
+# changes when install.sh (run as root) is re-run.
+install -m 0750 -o root -g root "${APP_DIR}/scripts/gamedock-instance-user" /usr/local/sbin/gamedock-instance-user
 # DATA_DIR and its instances/ dir need "other" execute (traverse-only, no
 # read/list) so a per-instance dedicated user can reach its own instance
 # dir - it isn't a member of the gamedock group. Idempotent/self-healing:
@@ -243,7 +247,7 @@ cat >"${SUDOERS_TMP}" <<SUDOEOF
 # one fixed root-owned provisioning script. See docs/SECURITY.md.
 Runas_Alias GAMEDOCK_INSTANCE_USERS = %gamedock-instances
 ${GAMEDOCK_USER} ALL=(GAMEDOCK_INSTANCE_USERS) NOPASSWD: ALL
-${GAMEDOCK_USER} ALL=(root) NOPASSWD: ${APP_DIR}/scripts/gamedock-instance-user
+${GAMEDOCK_USER} ALL=(root) NOPASSWD: /usr/local/sbin/gamedock-instance-user
 SUDOEOF
 if visudo -cf "${SUDOERS_TMP}" >/dev/null 2>&1; then
   install -m 0440 -o root -g root "${SUDOERS_TMP}" /etc/sudoers.d/gamedock-instances

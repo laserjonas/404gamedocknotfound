@@ -89,6 +89,8 @@ export interface BuildStartCommandInput {
   instanceDir: string;
   instanceId: string;
   instanceName: string;
+  /** Shared cluster data directory, exposed as GAMEDOCK_CLUSTER_DIR. */
+  clusterDir?: string;
   /** Resolved template variable values. */
   variables: Record<string, string>;
   /** Extra env vars configured on the instance. */
@@ -103,11 +105,15 @@ export function builtinVariables(input: {
   instanceDir: string;
   instanceId: string;
   instanceName: string;
+  clusterDir?: string;
 }): Record<string, string> {
   return {
     GAMEDOCK_INSTANCE_DIR: input.instanceDir,
     GAMEDOCK_INSTANCE_ID: input.instanceId,
     GAMEDOCK_INSTANCE_NAME: input.instanceName,
+    // Shared across all instances - lets multi-server setups (ARK clusters)
+    // point every member at the same transfer directory.
+    ...(input.clusterDir !== undefined ? { GAMEDOCK_CLUSTER_DIR: input.clusterDir } : {}),
   };
 }
 
@@ -133,7 +139,17 @@ export function buildStartCommand(input: BuildStartCommandInput): StartCommand {
 
   const args: string[] = [];
   for (const rawArg of rawArgs) {
-    const arg = substitutePlaceholders(rawArg, vars);
+    // Object args are dropped wholesale when their gate variable is empty -
+    // for flags like "-clusterid={{CLUSTER_ID}}" that must not appear at all
+    // (not as "-clusterid=") when the feature is unconfigured.
+    let raw: string;
+    if (typeof rawArg === 'string') {
+      raw = rawArg;
+    } else {
+      if ((vars[rawArg.omitIfEmpty] ?? '') === '') continue;
+      raw = rawArg.value;
+    }
+    const arg = substitutePlaceholders(raw, vars);
     if (containsControlChars(arg)) {
       throw badRequest('A startup argument contains control characters');
     }

@@ -35,7 +35,12 @@ export function SettingsTab({ instance, template, onUpdated }: SettingsTabProps)
   const [executable, setExecutable] = useState(
     instance.startExecutable ?? template.start.executable,
   );
-  const [argsText, setArgsText] = useState((instance.startArgs ?? template.start.args).join('\n'));
+  // Conditional template args (object form) become plain lines here: an
+  // explicit override is always passed verbatim, conditions don't apply.
+  const templateArgs = template.start.args.map((arg) =>
+    typeof arg === 'string' ? arg : arg.value,
+  );
+  const [argsText, setArgsText] = useState((instance.startArgs ?? templateArgs).join('\n'));
   const [overrideStartup, setOverrideStartup] = useState(
     instance.startExecutable !== null || instance.startArgs !== null,
   );

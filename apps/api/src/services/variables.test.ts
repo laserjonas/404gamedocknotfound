@@ -111,6 +111,57 @@ describe('buildStartCommand', () => {
     expect(cmd.args).toEqual(['-name', 'x y', '-port', '2456', '-password']);
   });
 
+  it('omits conditional args when their gate variable is empty, includes them when set', () => {
+    const tpl = makeTemplate({
+      start: {
+        executable: './bin',
+        args: [
+          'Map?listen',
+          '-server',
+          { value: '-automanagedmods', omitIfEmpty: 'MODS' },
+          { value: '-clusterid={{CLUSTER}}', omitIfEmpty: 'CLUSTER' },
+        ],
+        workingDir: '.',
+      },
+      variables: [
+        { key: 'MODS', label: 'Mods', default: '', required: false },
+        { key: 'CLUSTER', label: 'Cluster', default: '', required: false },
+      ],
+    });
+
+    const off = buildStartCommand({
+      template: tpl,
+      ...baseInput,
+      variables: { MODS: '', CLUSTER: '' },
+    });
+    expect(off.args).toEqual(['Map?listen', '-server']);
+
+    const on = buildStartCommand({
+      template: tpl,
+      ...baseInput,
+      variables: { MODS: '123,456', CLUSTER: 'my-cluster' },
+    });
+    expect(on.args).toEqual(['Map?listen', '-server', '-automanagedmods', '-clusterid=my-cluster']);
+  });
+
+  it('exposes GAMEDOCK_CLUSTER_DIR when a cluster dir is configured', () => {
+    const tpl = makeTemplate({
+      start: {
+        executable: './bin',
+        args: ['-ClusterDirOverride={{GAMEDOCK_CLUSTER_DIR}}'],
+        workingDir: '.',
+      },
+      variables: [],
+    });
+    const cmd = buildStartCommand({
+      template: tpl,
+      ...baseInput,
+      clusterDir: '/var/lib/gamedock/clusters',
+      variables: {},
+    });
+    expect(cmd.args).toEqual(['-ClusterDirOverride=/var/lib/gamedock/clusters']);
+  });
+
   it('provides built-in GAMEDOCK_* variables', () => {
     const tpl = makeTemplate({
       start: {

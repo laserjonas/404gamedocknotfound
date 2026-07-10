@@ -1,8 +1,10 @@
 import { spawn } from 'node:child_process';
-import { access, constants } from 'node:fs';
+import { access, constants, existsSync } from 'node:fs';
+import { copyFile, mkdir, symlink } from 'node:fs/promises';
 import { promisify } from 'node:util';
-import { isAbsolute, join, delimiter } from 'node:path';
+import { isAbsolute, join, dirname, delimiter } from 'node:path';
 import { badRequest } from '../errors.js';
+import { runUrlInstall } from './urlInstaller.js';
 
 const accessAsync = promisify(access);
 
@@ -95,6 +97,101 @@ export async function detectSteamCmd(configuredPath: string): Promise<{
 }> {
   const path = await findExecutable(configuredPath);
   return { found: path !== null, path };
+}
+
+/** Official SteamCMD bootstrap tarball (Valve CDN). */
+const STEAMCMD_TARBALL_URL =
+  'https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz';
+
+/**
+ * Places a host steamcmd installation may keep the given runtime library
+ * (Debian package layout, self-extracted layouts, and the service's own
+ * steamcmd HOME). First existing candidate wins.
+ */
+function findSteamClientLibrary(
+  steamcmdPath: string | null,
+  arch: 'linux32' | 'linux64',
+): string | null {
+  const home = process.env.HOME ?? '';
+  const roots = [
+    steamcmdPath ? dirname(steamcmdPath) : null,
+    home ? join(home, '.local/share/Steam/steamcmd') : null,
+    home ? join(home, 'Steam') : null,
+    home ? join(home, '.steam/steamcmd') : null,
+    '/usr/lib/games/steam',
+  ].filter((root): root is string => root !== null);
+  for (const root of roots) {
+    const candidate = join(root, arch, 'steamclient.so');
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Copies steamclient.so into the HOME the game will run with
+ * ($HOME/.steam/sdk64 and sdk32). Steamworks servers like ARK load it from
+ * there; without it they spam [S_API FAIL] errors and may never register
+ * with Steam's server list. Best-effort: a missing library logs a warning
+ * instead of failing the install.
+ */
+export async function installSteamClientLibrary(options: {
+  homeDir: string;
+  steamcmdPath: string;
+  onLog: (line: string) => void;
+}): Promise<void> {
+  const resolved = await findExecutable(options.steamcmdPath);
+  const targets: [arch: 'linux32' | 'linux64', sdkDir: string][] = [
+    ['linux64', 'sdk64'],
+    ['linux32', 'sdk32'],
+  ];
+  for (const [arch, sdkDir] of targets) {
+    const source = findSteamClientLibrary(resolved, arch);
+    const targetDir = join(options.homeDir, '.steam', sdkDir);
+    if (!source) {
+      options.onLog(
+        `WARNING: could not locate ${arch}/steamclient.so on this host - the game may log [S_API FAIL] errors. Run steamcmd once by hand if this persists.`,
+      );
+      continue;
+    }
+    await mkdir(targetDir, { recursive: true });
+    await copyFile(source, join(targetDir, 'steamclient.so'));
+    options.onLog(`Installed steamclient.so -> .steam/${sdkDir}/`);
+  }
+}
+
+/**
+ * Provisions the game's own workshop-mod machinery for Unreal servers that
+ * support -automanagedmods (ARK): a private SteamCMD copy at the hardcoded
+ * Engine/Binaries/ThirdParty/SteamCMD/Linux path, plus a steamapps symlink
+ * pointing at the real download location under the game's HOME - newer
+ * SteamCMD builds download workshop content under ~/.local/share/Steam,
+ * while the game unpacks mods from its embedded SteamCMD's steamapps dir
+ * (LinuxGSM #2937). Idempotent; safe to run on every install/update.
+ */
+export async function provisionAutoManagedMods(options: {
+  instanceDir: string;
+  homeDir: string;
+  onLog: (line: string) => void;
+}): Promise<void> {
+  const steamCmdDir = join(options.instanceDir, 'Engine/Binaries/ThirdParty/SteamCMD/Linux');
+  if (!existsSync(join(steamCmdDir, 'steamcmd.sh'))) {
+    options.onLog('Installing embedded SteamCMD for workshop mod support (-automanagedmods)...');
+    await mkdir(steamCmdDir, { recursive: true });
+    await runUrlInstall({
+      url: STEAMCMD_TARBALL_URL,
+      archive: 'tar',
+      instanceDir: steamCmdDir,
+      onLog: options.onLog,
+    });
+  }
+
+  const realSteamapps = join(options.homeDir, '.local/share/Steam/steamapps');
+  await mkdir(realSteamapps, { recursive: true });
+  const linkPath = join(steamCmdDir, 'steamapps');
+  if (!existsSync(linkPath)) {
+    await symlink(realSteamapps, linkPath, 'dir');
+    options.onLog('Linked embedded SteamCMD steamapps -> ~/.local/share/Steam/steamapps');
+  }
 }
 
 // SteamCMD progress lines look like:

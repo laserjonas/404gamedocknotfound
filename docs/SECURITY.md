@@ -80,9 +80,19 @@ The last active admin cannot be demoted, disabled or deleted.
     `sudo`, scoped by a `Runas_Alias` in `/etc/sudoers.d/gamedock-instances`
     to a fixed, non-root group (`gamedock-instances`) - `gamedock` can never
     become root or any other real account through this rule. One additional
-    root-owned, fixed-path script (`scripts/gamedock-instance-user`) is the
+    root-owned, fixed-path script (`/usr/local/sbin/gamedock-instance-user`,
+    installed by `install.sh` from `scripts/gamedock-instance-user`) is the
     only thing that can create/remove those dedicated users, also invoked
-    through a narrowly-scoped sudoers rule.
+    through a narrowly-scoped sudoers rule. It deliberately lives **outside**
+    `/opt/gamedock`: the in-app self-update rsyncs the app dir as the
+    unprivileged `gamedock` user, so a root-executable file kept in there
+    would end up gamedock-writable after the first self-update - a
+    privilege-escalation hole (this was the case before v0.16.0; re-run
+    `install.sh` once to fix affected hosts).
+  - Isolated game processes are launched as
+    `sudo -u <user> /usr/bin/env HOME=<instance dir> KEY=value ... <exe>`:
+    sudo's `env_reset` would otherwise strip the template/instance
+    environment and point `HOME` at a nonexistent home directory.
   - **Trade-off, stated plainly**: this requires `NoNewPrivileges=false` in
     the systemd unit (sudo's whole mechanism is gaining privileges at exec
     time, which `NoNewPrivileges=true` blocks entirely). That narrows one
