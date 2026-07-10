@@ -272,8 +272,9 @@ export function SettingsTab({ instance, template, onUpdated }: SettingsTabProps)
       <div className="card">
         <h3>Ports</h3>
         <div className="field-hint">
-          Documentation for you and your firewall — changing these does not reconfigure the game.
-          Adjust the matching game setting above or in the config file too.
+          Kept in sync with the matching port setting above: changing either side moves the other.
+          Saving a port another server already uses is rejected. Ports without a matching game
+          setting are documentation for you and your firewall.
         </div>
         {portsDraft.map((port, i) => (
           <div className="form-row-inline" key={i}>

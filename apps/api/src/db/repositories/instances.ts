@@ -40,6 +40,12 @@ export interface KeyValueRow {
   value: string;
 }
 
+export interface PortClaimRow {
+  port: number;
+  instance_id: string;
+  instance_name: string;
+}
+
 export class InstanceRepository {
   constructor(private db: DatabaseClient) {}
 
@@ -157,10 +163,23 @@ export class InstanceRepository {
     return map;
   }
 
-  /** Every port number claimed by any instance - for allocating collision-free defaults. */
-  async listAllUsedPorts(): Promise<number[]> {
-    const rows = await this.db.all<{ port: number }>('SELECT DISTINCT port FROM instance_ports');
-    return rows.map((r) => r.port);
+  /**
+   * Every port number claimed by any instance, with who claims it - for
+   * allocating collision-free defaults and for naming the culprit in
+   * conflict errors. Includes port-variable values (keys containing "PORT")
+   * in addition to port rows, so instances whose variables drifted from
+   * their rows before the two were kept in sync still count as claiming the
+   * port their game actually binds.
+   */
+  async listAllPortClaims(): Promise<PortClaimRow[]> {
+    return this.db.all<PortClaimRow>(
+      `SELECT p.port AS port, i.id AS instance_id, i.name AS instance_name
+         FROM instance_ports p JOIN server_instances i ON i.id = p.instance_id
+       UNION
+       SELECT CAST(v.value AS INTEGER) AS port, i.id AS instance_id, i.name AS instance_name
+         FROM instance_variables v JOIN server_instances i ON i.id = v.instance_id
+        WHERE v.key LIKE '%PORT%' AND CAST(v.value AS INTEGER) BETWEEN 1 AND 65535`,
+    );
   }
 
   async replacePorts(

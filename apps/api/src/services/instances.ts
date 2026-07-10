@@ -5,6 +5,7 @@ import type {
   CreateInstanceRequest,
   InstanceDto,
   InstanceStatus,
+  PortProtocol,
   UpdateInstanceRequest,
 } from '@gamedock/shared';
 import type { GameTemplate } from '@gamedock/game-templates';
@@ -35,7 +36,17 @@ import {
   substitutePlaceholders,
 } from './variables.js';
 import { resolveSafePath } from '../utils/safePath.js';
-import { isPortVariableKey, planInstancePorts } from './ports.js';
+import { Mutex } from '../utils/mutex.js';
+import {
+  claimedPortSet,
+  findPortConflicts,
+  isPortVariableKey,
+  parsePortValue,
+  planInstancePorts,
+  syncInstancePorts,
+  type PortClaim,
+} from './ports.js';
+import { findBusyPorts } from './portCheck.js';
 import { badRequest, conflict, notFound } from '../errors.js';
 
 const INSTANCE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 _.-]{1,63}$/;
@@ -48,6 +59,14 @@ function portVariablesOf(template: GameTemplate): { key: string; default: string
 }
 
 export class InstanceService {
+  /**
+   * Serializes every read-ports-then-write critical section (create, clone,
+   * port-affecting updates). Without it, two concurrent creations - easy to
+   * trigger via the Discord bot - both read the same "used ports" snapshot
+   * and get handed identical ports.
+   */
+  private portAllocation = new Mutex();
+
   constructor(
     private repo: InstanceRepository,
     private backupRepo: BackupRepository,
@@ -74,6 +93,24 @@ export class InstanceService {
 
   templateOf(row: InstanceRow): GameTemplate {
     return TemplateServiceStatic.parseSnapshot(row.template_definition);
+  }
+
+  /** Everything currently laying claim to a port: instances plus the panel itself. */
+  private async portClaims(): Promise<PortClaim[]> {
+    const rows = await this.repo.listAllPortClaims();
+    const claims: PortClaim[] = rows.map((r) => ({
+      port: r.port,
+      instanceId: r.instance_id,
+      instanceName: r.instance_name,
+    }));
+    claims.push({ port: this.config.port, instanceId: null, instanceName: 'the GameDock panel' });
+    return claims;
+  }
+
+  private throwPortConflicts(conflicts: { port: number; instanceName: string }[]): never {
+    throw conflict(
+      `Port conflict: ${conflicts.map((c) => `${c.port} is already used by "${c.instanceName}"`).join('; ')}`,
+    );
   }
 
   /** Effective runtime status: live process state wins over the persisted one. */
@@ -186,35 +223,45 @@ export class InstanceService {
 
     let variables = resolveVariableValues(template, request.variables ?? {});
 
-    // Explicit ports in the request are honored verbatim; otherwise shift the
-    // template's defaults past ports other instances already claim, so a
-    // second server of the same game doesn't fight over the same port.
-    let ports: {
-      name: string;
-      port: number;
-      protocol: (typeof template.ports)[number]['protocol'];
-    }[];
-    if (request.ports && request.ports.length > 0) {
-      ports = request.ports;
-    } else {
-      const plan = planInstancePorts({
-        ports: template.ports.map((p) => ({ name: p.name, port: p.port, protocol: p.protocol })),
-        variables,
-        portVariables: portVariablesOf(template),
-        usedPorts: new Set(await this.repo.listAllUsedPorts()),
+    // Explicit ports in the request are honored (but validated against other
+    // instances' claims); otherwise shift the template's defaults past ports
+    // other instances already claim, so a second server of the same game
+    // doesn't fight over the same port. The mutex covers the whole
+    // read-claims-then-persist section - without it, two concurrent creations
+    // would both see the same free range and be handed identical ports.
+    const row = await this.portAllocation.runExclusive(async () => {
+      const claims = await this.portClaims();
+      let ports: { name: string; port: number; protocol: PortProtocol }[];
+      if (request.ports && request.ports.length > 0) {
+        ports = request.ports;
+        const requested = [
+          ...ports.map((p) => p.port),
+          ...portVariablesOf(template)
+            .map((pv) => parsePortValue(variables[pv.key]))
+            .filter((port): port is number => port !== null),
+        ];
+        const conflicts = findPortConflicts(requested, claims);
+        if (conflicts.length > 0) this.throwPortConflicts(conflicts);
+      } else {
+        const plan = planInstancePorts({
+          ports: template.ports.map((p) => ({ name: p.name, port: p.port, protocol: p.protocol })),
+          variables,
+          portVariables: portVariablesOf(template),
+          usedPorts: claimedPortSet(claims),
+        });
+        ports = plan.ports;
+        variables = plan.variables;
+      }
+
+      const created = await this.repo.create({
+        name: request.name,
+        templateId: template.id,
+        templateDefinition: JSON.stringify(template),
       });
-      ports = plan.ports;
-      variables = plan.variables;
-    }
-
-    const row = await this.repo.create({
-      name: request.name,
-      templateId: template.id,
-      templateDefinition: JSON.stringify(template),
+      await this.repo.replaceVariables(created.id, variables);
+      await this.repo.replacePorts(created.id, ports);
+      return created;
     });
-
-    await this.repo.replaceVariables(row.id, variables);
-    await this.repo.replacePorts(row.id, ports);
 
     await this.provisionInstanceDirectory(row.id);
 
@@ -259,22 +306,26 @@ export class InstanceService {
 
     // The source's own ports are in the used set, so the clone always lands
     // on a free range instead of colliding with the instance it came from.
-    const plan = planInstancePorts({
-      ports: ports.map((p) => ({ name: p.name, port: p.port, protocol: p.protocol })),
-      variables,
-      portVariables: portVariablesOf(this.templateOf(source)),
-      usedPorts: new Set(await this.repo.listAllUsedPorts()),
-    });
+    // Same mutex as create(): plan + persist must be atomic vs. other requests.
+    const row = await this.portAllocation.runExclusive(async () => {
+      const plan = planInstancePorts({
+        ports: ports.map((p) => ({ name: p.name, port: p.port, protocol: p.protocol })),
+        variables,
+        portVariables: portVariablesOf(this.templateOf(source)),
+        usedPorts: claimedPortSet(await this.portClaims()),
+      });
 
-    const row = await this.repo.create({
-      name: newName,
-      templateId: source.template_id,
-      templateDefinition: source.template_definition,
-    });
+      const created = await this.repo.create({
+        name: newName,
+        templateId: source.template_id,
+        templateDefinition: source.template_definition,
+      });
 
-    await this.repo.replaceVariables(row.id, plan.variables);
-    await this.repo.replaceEnvVars(row.id, envVars);
-    await this.repo.replacePorts(row.id, plan.ports);
+      await this.repo.replaceVariables(created.id, plan.variables);
+      await this.repo.replaceEnvVars(created.id, envVars);
+      await this.repo.replacePorts(created.id, plan.ports);
+      return created;
+    });
     await this.repo.update(row.id, {
       autoStart: source.auto_start === 1,
       crashRestart: source.crash_restart === 1,
@@ -304,17 +355,53 @@ export class InstanceService {
       }
     }
 
-    if (request.variables !== undefined) {
-      // Secret placeholder values (bullet chars) mean "keep the stored value".
-      const current = await this.repo.getVariables(id);
-      const merged: Record<string, string> = { ...request.variables };
-      for (const variable of template.variables) {
-        if (variable.secret && merged[variable.key]?.includes('••')) {
-          merged[variable.key] = current[variable.key] ?? variable.default;
+    if (request.variables !== undefined || request.ports !== undefined) {
+      const [currentVariables, currentPortRows] = await Promise.all([
+        this.repo.getVariables(id),
+        this.repo.listPorts(id),
+      ]);
+
+      let resolved: Record<string, string> | undefined;
+      if (request.variables !== undefined) {
+        // Secret placeholder values (bullet chars) mean "keep the stored value".
+        const merged: Record<string, string> = { ...request.variables };
+        for (const variable of template.variables) {
+          if (variable.secret && merged[variable.key]?.includes('••')) {
+            merged[variable.key] = currentVariables[variable.key] ?? variable.default;
+          }
         }
+        resolved = resolveVariableValues(template, merged);
       }
-      const resolved = resolveVariableValues(template, merged);
-      await this.repo.replaceVariables(id, resolved);
+
+      // Port rows and port variables move together (editing either side used
+      // to silently desync them), and newly introduced ports are rejected if
+      // another instance already claims them. Same mutex as create(): the
+      // conflict check must not race a concurrent allocation.
+      await this.portAllocation.runExclusive(async () => {
+        const sync = syncInstancePorts({
+          currentPorts: currentPortRows.map((p) => ({
+            name: p.name,
+            port: p.port,
+            protocol: p.protocol,
+          })),
+          currentVariables,
+          requestedPorts: request.ports,
+          requestedVariables: resolved,
+          portVariableKeys: template.variables
+            .filter((v) => isPortVariableKey(v.key))
+            .map((v) => v.key),
+        });
+
+        if (sync.introducedPorts.length > 0) {
+          const conflicts = findPortConflicts(sync.introducedPorts, await this.portClaims(), {
+            excludeInstanceId: id,
+          });
+          if (conflicts.length > 0) this.throwPortConflicts(conflicts);
+        }
+
+        await this.repo.replaceVariables(id, sync.variables);
+        await this.repo.replacePorts(id, sync.ports);
+      });
     }
 
     if (request.envVars !== undefined) {
@@ -330,10 +417,6 @@ export class InstanceService {
         }
       }
       await this.repo.replaceEnvVars(id, request.envVars);
-    }
-
-    if (request.ports !== undefined) {
-      await this.repo.replacePorts(id, request.ports);
     }
 
     await this.repo.update(id, {
@@ -500,10 +583,25 @@ export class InstanceService {
     }
     const template = this.templateOf(row);
     const dir = this.instanceDir(id);
-    const [variables, instanceEnv] = await Promise.all([
+    const [variables, instanceEnv, portRows] = await Promise.all([
       this.repo.getVariables(id),
       this.repo.getEnvVars(id),
+      this.repo.listPorts(id),
     ]);
+
+    // Preflight: fail with a named port instead of letting the game die on a
+    // cryptic bind error when something else on the host already holds it.
+    const busy = await findBusyPorts(portRows.map((p) => ({ port: p.port, protocol: p.protocol })));
+    if (busy.length > 0) {
+      throw conflict(
+        `Cannot start "${row.name}": port(s) ${busy
+          .map((b) => `${b.port}/${b.protocol}`)
+          .join(
+            ', ',
+          )} are already in use on this host. Stop whatever is bound to them or change this server's ports in Settings.`,
+      );
+    }
+
     const command = buildStartCommand({
       template,
       instanceDir: dir,

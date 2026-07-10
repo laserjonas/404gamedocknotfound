@@ -113,9 +113,18 @@ These are always available in placeholders, in addition to template variables:
   the startup command follows. This is why port-carrying variables should be
   named `GAME_PORT`/`QUERY_PORT`/etc. with a `default` matching the corresponding
   `ports` entry — that link is how the panel knows which variable steers which
-  port. Templates without port variables (e.g. modpack-based ones) keep their
-  literal defaults and can still collide; prefer wiring a variable when the game
-  supports it.
+  port. Every built-in template wires at least its main port through a variable;
+  a template without one keeps its literal defaults and will collide with a
+  second instance of itself, so always wire a variable when the game supports it
+  (config-file games can use a `setupFiles` entry, like the Minecraft templates'
+  `server.properties`).
+- **Ports stay collision-free after creation too**: allocation is serialized
+  (concurrent creations can't be handed the same range and the used set also
+  counts port-variable values), editing a port variable moves its linked port
+  entry with it (and vice versa), and an edit that grabs a port another
+  instance claims is rejected with `409 Conflict`. Starting a server first
+  probes its ports on the host and refuses with a named port if something else
+  is already bound.
 - Each instance stores a **snapshot** of its template at creation time, so editing
   a template file affects only newly created instances.
 - Finding Steam app ids: search the game on <https://steamdb.info> and use the

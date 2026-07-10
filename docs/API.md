@@ -56,27 +56,27 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 
 ## Instances
 
-| Method | Path                   | Role     | Description                                                                                                                                                               |
-| ------ | ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/instances`           | viewer   | List instances (live status, ports, env)                                                                                                                                  |
-| POST   | `/instances`           | admin    | Body `{name, templateId, variables?, ports?}` - without `ports`, free ports are auto-assigned (defaults shifted past ports in use); explicit `ports` are used verbatim    |
-| GET    | `/instances/:id`       | viewer   | Detail incl. CPU/RAM usage while running                                                                                                                                  |
-| POST   | `/instances/:id/clone` | admin    | Body `{name}` - copies template snapshot, variables, env vars and startup/backup settings into a new (not-yet-installed) instance; ports are re-assigned to a free range  |
-| PATCH  | `/instances/:id`       | operator | Body `{name?, autoStart?, crashRestart?, backupIntervalHours?, backupRetentionCount?, restartIntervalHours?, startExecutable?, startArgs?, envVars?, variables?, ports?}` |
-| DELETE | `/instances/:id`       | admin    | Deletes files + backups; returns `{job}`                                                                                                                                  |
+| Method | Path                   | Role     | Description                                                                                                                                                                                                                                                                                             |
+| ------ | ---------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/instances`           | viewer   | List instances (live status, ports, env)                                                                                                                                                                                                                                                                |
+| POST   | `/instances`           | admin    | Body `{name, templateId, variables?, ports?}` - without `ports`, free ports are auto-assigned (defaults shifted past ports in use); explicit `ports` give `409` if another instance already claims one                                                                                                  |
+| GET    | `/instances/:id`       | viewer   | Detail incl. CPU/RAM usage while running                                                                                                                                                                                                                                                                |
+| POST   | `/instances/:id/clone` | admin    | Body `{name}` - copies template snapshot, variables, env vars and startup/backup settings into a new (not-yet-installed) instance; ports are re-assigned to a free range                                                                                                                                |
+| PATCH  | `/instances/:id`       | operator | Body `{name?, autoStart?, crashRestart?, backupIntervalHours?, backupRetentionCount?, restartIntervalHours?, startExecutable?, startArgs?, envVars?, variables?, ports?}` - port variables and `ports` entries are kept in sync with each other; a port already claimed by another instance gives `409` |
+| DELETE | `/instances/:id`       | admin    | Deletes files + backups; returns `{job}`                                                                                                                                                                                                                                                                |
 
 ### Actions
 
-| Method | Path                              | Role     | Description                                                                        |
-| ------ | --------------------------------- | -------- | ---------------------------------------------------------------------------------- |
-| POST   | `/instances/:id/install`          | operator | Install server files → `{job}`                                                     |
-| POST   | `/instances/:id/update`           | operator | Update server files → `{job}`                                                      |
-| POST   | `/instances/:id/start`            | operator | Start the server process                                                           |
-| POST   | `/instances/:id/stop`             | operator | Graceful stop (console command or signal, SIGKILL after template timeout)          |
-| POST   | `/instances/:id/restart`          | operator | Stop (graceful) then start                                                         |
-| POST   | `/instances/:id/kill`             | operator | Immediate SIGKILL                                                                  |
-| POST   | `/instances/:id/command`          | operator | Body `{command}` — write to server stdin (if supported)                            |
-| GET    | `/instances/:id/commands/history` | viewer   | Recent commands sent, most recent first — backs the console's up/down-arrow recall |
+| Method | Path                              | Role     | Description                                                                                                 |
+| ------ | --------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------- |
+| POST   | `/instances/:id/install`          | operator | Install server files → `{job}`                                                                              |
+| POST   | `/instances/:id/update`           | operator | Update server files → `{job}`                                                                               |
+| POST   | `/instances/:id/start`            | operator | Start the server process; `409` naming the port if one of the instance's ports is already bound on the host |
+| POST   | `/instances/:id/stop`             | operator | Graceful stop (console command or signal, SIGKILL after template timeout)                                   |
+| POST   | `/instances/:id/restart`          | operator | Stop (graceful) then start                                                                                  |
+| POST   | `/instances/:id/kill`             | operator | Immediate SIGKILL                                                                                           |
+| POST   | `/instances/:id/command`          | operator | Body `{command}` — write to server stdin (if supported)                                                     |
+| GET    | `/instances/:id/commands/history` | viewer   | Recent commands sent, most recent first — backs the console's up/down-arrow recall                          |
 
 ### Logs
 

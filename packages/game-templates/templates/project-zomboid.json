@@ -21,6 +21,8 @@
       "{{ADMIN_USER}}",
       "-adminpassword",
       "{{ADMIN_PASSWORD}}",
+      "-port",
+      "{{GAME_PORT}}",
       "-cachedir={{GAMEDOCK_INSTANCE_DIR}}/zomboid-data"
     ],
     "workingDir": "."
@@ -62,7 +64,14 @@
       "default": "changeme",
       "required": true,
       "secret": true
+    },
+    {
+      "key": "GAME_PORT",
+      "label": "Game port (UDP, direct connections use port+1)",
+      "default": "16261",
+      "required": true,
+      "pattern": "[0-9]{2,5}"
     }
   ],
-  "notes": "First start creates config files under zomboid-data/Server. Type console commands (e.g. save, players) directly in the console tab; the server stops cleanly with the quit command."
+  "notes": "First start creates config files under zomboid-data/Server. The direct-connection port is always game port + 1; open both UDP ports in the firewall. Type console commands (e.g. save, players) directly in the console tab; the server stops cleanly with the quit command."
 }
