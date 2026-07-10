@@ -100,6 +100,15 @@ export const gameTemplateSchema = z
         z.object({
           path: z.string().min(1).max(512),
           content: z.string().max(65536),
+          /**
+           * "properties": treat content as KEY=value lines and merge them into
+           * an existing file instead of overwriting it (replacing those keys'
+           * lines, keeping everything else). Applied on updates too, unlike
+           * plain setup files which never touch an existing file on update.
+           * For files the game or a modpack may legitimately own, like
+           * Minecraft's server.properties.
+           */
+          merge: z.enum(['properties']).optional(),
         }),
       )
       .max(16)

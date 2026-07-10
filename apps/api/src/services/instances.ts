@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import type {
@@ -37,6 +37,7 @@ import {
 } from './variables.js';
 import { resolveSafePath } from '../utils/safePath.js';
 import { Mutex } from '../utils/mutex.js';
+import { mergeProperties } from '../utils/properties.js';
 import {
   claimedPortSet,
   findPortConflicts,
@@ -542,9 +543,19 @@ export class InstanceService {
         // Write template setup files (eula.txt, server-settings.json, ...).
         for (const setupFile of template.setupFiles) {
           const target = resolveSafePath(dir, setupFile.path);
+          const content = substitutePlaceholders(setupFile.content, variables);
+          if (setupFile.merge === 'properties' && existsSync(target)) {
+            // Merge-mode files assert single keys (e.g. server-port) without
+            // clobbering a file the game or a modpack owns - and unlike plain
+            // setup files they re-apply on update, so a changed port variable
+            // reaches the config via "Update files".
+            const existing = await readFile(target, 'utf8');
+            await writeFile(target, mergeProperties(existing, content), 'utf8');
+            handle.log(`Merged ${setupFile.path}`);
+            continue;
+          }
           if (isUpdate && existsSync(target)) continue; // don't clobber user edits on update
           await mkdir(dirname(target), { recursive: true });
-          const content = substitutePlaceholders(setupFile.content, variables);
           await writeFile(target, content, 'utf8');
           handle.log(`Wrote ${setupFile.path}`);
         }

@@ -68,7 +68,11 @@ service after adding one). `pnpm gamedock doctor` lists load errors.
   "configFiles": [{ "path": "server.cfg", "description": "Main config", "createdByServer": true }],
 
   // Files written into the instance dir after install (placeholders allowed).
-  // Existing files are not overwritten during updates.
+  // Existing files are not overwritten during updates. With "merge":
+  // "properties" the content's KEY=value lines are merged into an existing
+  // file instead (those keys replaced, everything else kept) - on updates too
+  // - for asserting single keys in a file the game or a modpack owns, like
+  // the Minecraft templates' server-port in server.properties.
   "setupFiles": [{ "path": "eula.txt", "content": "eula={{ACCEPT_EULA}}\n" }],
 
   // User-facing settings; referenced as {{KEY}} in args/env/urls/setupFiles
