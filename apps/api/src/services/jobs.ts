@@ -39,15 +39,30 @@ export function toJobDto(row: JobRow, instanceName: string | null): JobDto {
   };
 }
 
+/** Keep at most this much of the newest log output per job. */
+const MAX_LOG_CHARS = 1_000_000;
+/**
+ * How often a running job's in-memory log is checkpointed to the DB.
+ * SQLite rewrites the entire log cell on every UPDATE (O(logSize), not
+ * O(new bytes)), so the write cadence - not the append size - is what
+ * decides the I/O bill of a chatty steamcmd install. Viewers aren't
+ * affected: SSE gets every line immediately and reads of a running job
+ * are served from memory.
+ */
+const LOG_CHECKPOINT_MS = 5000;
+
 /**
  * Minimal in-process job queue. One job runs at a time per instance
  * (enforced at enqueue), with a global concurrency limit. Jobs do not
- * survive restarts: on boot, leftover queued/running jobs are failed.
+ * survive restarts: on boot, leftover queued/running jobs are failed
+ * (which also caps the log lost to a crash at one checkpoint interval).
  */
 export class JobService {
   private queue: QueuedJob[] = [];
   private running = 0;
   private readonly maxConcurrent = 2;
+  /** Full (capped) log of every currently-running job; the source of truth until it finishes. */
+  private activeLogs = new Map<string, string>();
 
   constructor(
     private jobs: JobRepository,
@@ -109,21 +124,26 @@ export class JobService {
     }
   }
 
+  /** The live log of a running job (fresher than the DB checkpoint), or null once finished. */
+  currentLog(jobId: string): string | null {
+    return this.activeLogs.get(jobId) ?? null;
+  }
+
   private async execute(queued: QueuedJob): Promise<void> {
     const { id } = queued;
     await this.jobs.markStarted(id);
     await this.publishUpdate(id);
 
-    // Batch log writes: SQLite update per line would be wasteful for steamcmd.
-    let pendingLog = '';
-    let flushTimer: NodeJS.Timeout | null = null;
-    const flush = async () => {
-      if (pendingLog) {
-        const text = pendingLog;
-        pendingLog = '';
-        await this.jobs.appendLog(id, text);
-      }
-      flushTimer = null;
+    // The running log lives in memory; the DB only sees a periodic
+    // checkpoint (and the final state), see LOG_CHECKPOINT_MS.
+    this.activeLogs.set(id, '');
+    let dirty = false;
+    let checkpointTimer: NodeJS.Timeout | null = null;
+    const checkpoint = async () => {
+      checkpointTimer = null;
+      if (!dirty) return;
+      dirty = false;
+      await this.jobs.setLog(id, this.activeLogs.get(id) ?? '');
     };
 
     let lastProgressPublish = 0;
@@ -131,15 +151,20 @@ export class JobService {
       id,
       log: (line: string) => {
         const text = line.endsWith('\n') ? line : line + '\n';
-        pendingLog += text;
+        const current = this.activeLogs.get(id) ?? '';
+        this.activeLogs.set(id, (current + text).slice(-MAX_LOG_CHARS));
+        dirty = true;
         this.events.publishJobLog(id, text);
-        if (!flushTimer) {
-          flushTimer = setTimeout(() => {
-            void flush().catch((err) => {
-              this.logger.warn({ jobId: id, err: (err as Error).message }, 'job log flush failed');
+        if (!checkpointTimer) {
+          checkpointTimer = setTimeout(() => {
+            void checkpoint().catch((err) => {
+              this.logger.warn(
+                { jobId: id, err: (err as Error).message },
+                'job log checkpoint failed',
+              );
             });
-          }, 500);
-          flushTimer.unref();
+          }, LOG_CHECKPOINT_MS);
+          checkpointTimer.unref();
         }
       },
       setProgress: (percent, message) => {
@@ -160,18 +185,19 @@ export class JobService {
 
     try {
       await queued.runner(handle);
-      await flush();
       await this.jobs.markFinished(id, 'succeeded');
       this.logger.info({ jobId: id }, 'job succeeded');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       handle.log(`ERROR: ${message}`);
-      await flush();
       await this.jobs.markFinished(id, 'failed', message.slice(0, 500));
       this.logger.warn({ jobId: id, err: message }, 'job failed');
     } finally {
-      if (flushTimer) clearTimeout(flushTimer);
-      await flush();
+      if (checkpointTimer) clearTimeout(checkpointTimer);
+      await checkpoint().catch((err) => {
+        this.logger.warn({ jobId: id, err: (err as Error).message }, 'final job log write failed');
+      });
+      this.activeLogs.delete(id);
       await this.publishUpdate(id);
     }
   }

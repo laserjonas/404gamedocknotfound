@@ -220,6 +220,17 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE server_instances ADD COLUMN cpu_quota_percent INTEGER;
     `,
   },
+  {
+    id: 11,
+    name: 'jobs-indexes',
+    // jobs is never pruned, so the unindexed ORDER BY created_at behind
+    // GET /api/jobs degraded with lifetime job count; type+status serves
+    // findActiveByType (system_update mutual exclusion).
+    sql: `
+      CREATE INDEX idx_jobs_created ON jobs(created_at);
+      CREATE INDEX idx_jobs_type_status ON jobs(type, status);
+    `,
+  },
 ];
 
 export async function runMigrations(db: DatabaseClient, logger?: Logger): Promise<void> {

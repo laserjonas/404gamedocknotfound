@@ -622,25 +622,41 @@ export class ProcessManager {
     if (stream === 'stdout') managed.stdoutRemainder = remainder;
     else managed.stderrRemainder = remainder;
 
+    const ts = Date.now();
+    const entries: ConsoleLine[] = [];
     for (const line of lines) {
       if (line.length === 0) continue;
-      this.appendLine(managed, { ts: Date.now(), stream, line: line.slice(0, 4000) });
+      entries.push({ ts, stream, line: line.slice(0, 4000) });
     }
+    this.appendLines(managed, entries);
   }
 
   private appendSystemLine(managed: ManagedProcess, line: string): void {
-    this.appendLine(managed, { ts: Date.now(), stream: 'system', line });
+    this.appendLines(managed, [{ ts: Date.now(), stream: 'system', line }]);
   }
 
-  private appendLine(managed: ManagedProcess, entry: ConsoleLine): void {
-    managed.buffer.push(entry);
-    if (managed.buffer.length > LOG_BUFFER_LINES) {
-      managed.buffer.splice(0, managed.buffer.length - LOG_BUFFER_LINES);
+  /**
+   * A poll tick's worth of output is handled as one batch: one ring-buffer
+   * trim, one file write, one SSE-fanout emit - instead of each of those
+   * per line, which multiplies badly when a game spams output.
+   */
+  private appendLines(managed: ManagedProcess, entries: ConsoleLine[]): void {
+    if (entries.length === 0) return;
+    if (entries.length >= LOG_BUFFER_LINES) {
+      // A single burst bigger than the whole ring: keep only its tail.
+      managed.buffer = entries.slice(-LOG_BUFFER_LINES);
+    } else {
+      managed.buffer.push(...entries);
+      if (managed.buffer.length > LOG_BUFFER_LINES) {
+        managed.buffer.splice(0, managed.buffer.length - LOG_BUFFER_LINES);
+      }
     }
     managed.logStream?.write(
-      `${new Date(entry.ts).toISOString()} [${entry.stream}] ${entry.line}\n`,
+      entries
+        .map((entry) => `${new Date(entry.ts).toISOString()} [${entry.stream}] ${entry.line}\n`)
+        .join(''),
     );
-    this.events.publishConsole(managed.instanceId, entry);
+    this.events.publishConsole(managed.instanceId, entries);
   }
 
   private rotateLogIfNeeded(logFilePath: string): void {
@@ -706,7 +722,7 @@ export class ProcessManager {
       throw badRequest('Command must be between 1 and 1000 characters');
     }
     await this.writeToFifo(managed.fifoPath, command + '\n');
-    this.appendLine(managed, { ts: Date.now(), stream: 'system', line: `> ${command}` });
+    this.appendSystemLine(managed, `> ${command}`);
   }
 
   /**

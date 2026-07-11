@@ -233,12 +233,19 @@ export function registerInstanceRoutes(app: FastifyInstance, ctx: AppContext): v
       });
       reply.raw.write(':ok\n\n');
 
-      for (const line of ctx.processes.recentLines(id)) {
-        reply.raw.write(`data: ${JSON.stringify(line)}\n\n`);
+      // Replay + live frames both carry an ARRAY of console lines: the
+      // buffered history goes out as one frame, and live output arrives one
+      // frame per process-manager poll tick, pre-serialized once in the hub
+      // no matter how many viewers are attached.
+      const backlog = ctx.processes.recentLines(id);
+      if (backlog.length > 0) {
+        reply.raw.write(`data: ${JSON.stringify(backlog)}\n\n`);
       }
 
-      const unsubscribe = ctx.events.onConsole(id, (line) => {
-        reply.raw.write(`data: ${JSON.stringify(line)}\n\n`);
+      const unsubscribe = ctx.events.onConsole(id, (_lines, frame) => {
+        // Skip frames for a stalled client instead of buffering without bound.
+        if (reply.raw.writableLength > 1_000_000) return;
+        reply.raw.write(frame);
       });
       const keepAlive = setInterval(() => reply.raw.write(':ka\n\n'), 25000);
 

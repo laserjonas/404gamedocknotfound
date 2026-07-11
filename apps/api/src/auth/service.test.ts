@@ -420,6 +420,25 @@ describe('AuthService API tokens', () => {
     expect(await service.validateApiToken(token)).toBeNull();
   });
 
+  it('throttles last-used bookkeeping so polling clients do not write per request', async () => {
+    const user = await makeUser();
+    const tokens = fakeApiTokens();
+    let updates = 0;
+    const original = tokens.updateLastUsed.bind(tokens);
+    tokens.updateLastUsed = async (id: string) => {
+      updates += 1;
+      await original(id);
+    };
+    const service = makeService(fakeUsers([user]), fakeSessions(), undefined, tokens);
+    const { token } = await service.createApiToken(user.id, 'CI script', null);
+
+    await service.validateApiToken(token);
+    await service.validateApiToken(token);
+    await service.validateApiToken(token);
+    // The first call stamps last_used_at; fresh stamps short-circuit the write.
+    expect(updates).toBe(1);
+  });
+
   it('cannot revoke another user’s token by id', async () => {
     const alice = await makeUser({ username: 'alice' });
     const bob = await makeUser({ username: 'bob' });

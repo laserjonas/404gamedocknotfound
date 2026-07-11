@@ -80,10 +80,10 @@ Roles: `viewer` < `operator` < `admin`. The role column shows the minimum role.
 
 ### Logs
 
-| Method | Path                         | Role   | Description                                         |
-| ------ | ---------------------------- | ------ | --------------------------------------------------- |
-| GET    | `/instances/:id/logs`        | viewer | Recent console lines (live buffer or log file tail) |
-| GET    | `/instances/:id/logs/stream` | viewer | **SSE** live console stream                         |
+| Method | Path                         | Role   | Description                                                                                                                                             |
+| ------ | ---------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/instances/:id/logs`        | viewer | Recent console lines (live buffer or log file tail)                                                                                                     |
+| GET    | `/instances/:id/logs/stream` | viewer | **SSE** live console stream; each `data:` frame is an **array** of console-line objects (the replay backlog as one frame, then one batch per poll tick) |
 
 ### Files (sandboxed to the instance directory)
 

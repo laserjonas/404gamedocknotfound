@@ -17,8 +17,6 @@ export interface JobRow {
   finished_at: string | null;
 }
 
-const MAX_LOG_CHARS = 1_000_000;
-
 export class JobRepository {
   constructor(private db: DatabaseClient) {}
 
@@ -98,12 +96,15 @@ export class JobRepository {
     }
   }
 
-  async appendLog(id: string, text: string): Promise<void> {
-    // Keep at most MAX_LOG_CHARS of the newest output.
-    await this.db.run(`UPDATE jobs SET log = substr(log || ?, -${MAX_LOG_CHARS}) WHERE id = ?`, [
-      text,
-      id,
-    ]);
+  /**
+   * Overwrites the stored log with the caller-maintained (already capped)
+   * text. The running job's log of record lives in JobService's memory and
+   * is only checkpointed here - an append-style UPDATE would make SQLite
+   * rewrite the whole multi-hundred-KB cell per call anyway, so there is
+   * nothing cheaper than a plain overwrite at checkpoint time.
+   */
+  async setLog(id: string, log: string): Promise<void> {
+    await this.db.run('UPDATE jobs SET log = ? WHERE id = ?', [log, id]);
   }
 
   /** Called on startup: jobs cannot survive a process restart. */

@@ -6,12 +6,30 @@ import { findExecutable } from './steamcmd.js';
 import { spawn } from 'node:child_process';
 
 const CACHE_MS = 2000;
+/**
+ * Disk usage changes on the scale of minutes, and si.fsSize() is the one
+ * expensive probe here (it spawns `df` on Linux). The dashboard polls every
+ * 5s - above the 2s stats cache - so without a separate longer TTL every
+ * single-viewer poll would fork a process just to reprint the same numbers.
+ */
+const DISK_CACHE_MS = 60_000;
 
 export class SystemStatsService {
   private cached: {
     at: number;
     stats: Omit<SystemStatsDto, 'runningInstances' | 'totalInstances'>;
   } | null = null;
+
+  private cachedDisk: { at: number; fs: Systeminformation.FsSizeData[] } | null = null;
+
+  private async diskUsage(): Promise<Systeminformation.FsSizeData[]> {
+    if (this.cachedDisk && Date.now() - this.cachedDisk.at < DISK_CACHE_MS) {
+      return this.cachedDisk.fs;
+    }
+    const fs = await si.fsSize().catch(() => [] as Systeminformation.FsSizeData[]);
+    this.cachedDisk = { at: Date.now(), fs };
+    return fs;
+  }
 
   async collect(): Promise<Omit<SystemStatsDto, 'runningInstances' | 'totalInstances'>> {
     if (this.cached && Date.now() - this.cached.at < CACHE_MS) {
@@ -21,7 +39,7 @@ export class SystemStatsService {
     const [load, mem, fs, net] = await Promise.all([
       si.currentLoad().catch(() => null),
       si.mem().catch(() => null),
-      si.fsSize().catch(() => [] as Systeminformation.FsSizeData[]),
+      this.diskUsage(),
       si.networkStats().catch(() => [] as Systeminformation.NetworkStatsData[]),
     ]);
 

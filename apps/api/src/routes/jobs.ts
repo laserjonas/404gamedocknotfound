@@ -15,7 +15,9 @@ export function registerJobRoutes(app: FastifyInstance, ctx: AppContext): void {
     const { id } = request.params as { id: string };
     const row = await ctx.repos.jobs.findById(id);
     if (!row) throw notFound('Job not found');
-    return { ...(await ctx.jobs.dto(row)), log: row.log };
+    // A running job's log of record lives in memory (fresher than the
+    // periodic DB checkpoint); the stored column is authoritative once done.
+    return { ...(await ctx.jobs.dto(row)), log: ctx.jobs.currentLog(id) ?? row.log };
   });
 
   // Live job log stream (SSE): replays the stored log, then follows.
@@ -32,12 +34,16 @@ export function registerJobRoutes(app: FastifyInstance, ctx: AppContext): void {
     });
     reply.raw.write(':ok\n\n');
 
-    if (row.log) {
-      reply.raw.write(`data: ${JSON.stringify({ text: row.log })}\n\n`);
+    const replayLog = ctx.jobs.currentLog(id) ?? row.log;
+    if (replayLog) {
+      reply.raw.write(`data: ${JSON.stringify({ text: replayLog })}\n\n`);
     }
 
-    const unsubscribe = ctx.events.onJobLog(id, (text) => {
-      reply.raw.write(`data: ${JSON.stringify({ text })}\n\n`);
+    const unsubscribe = ctx.events.onJobLog(id, (_text, frame) => {
+      // Serialized once in the hub; skip frames for a stalled client rather
+      // than buffering a chatty job's output without bound.
+      if (reply.raw.writableLength > 1_000_000) return;
+      reply.raw.write(frame);
     });
     const unsubscribeEvents = ctx.events.onEvent((event) => {
       if (event.kind === 'job_update' && event.job.id === id) {

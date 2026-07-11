@@ -5,6 +5,8 @@ import { useSse } from '../hooks';
 import { useAuth } from '../auth';
 
 const MAX_LINES = 1000;
+/** How often buffered incoming lines are committed to React state. */
+const FLUSH_INTERVAL_MS = 100;
 
 interface ConsoleProps {
   instanceId: string;
@@ -12,8 +14,18 @@ interface ConsoleProps {
   supportsInput: boolean;
 }
 
+/** A console line with a stable identity for React keys - index keys would
+ * remap every row once the ring cap is hit, reconciling all 1000 rows per
+ * incoming line. */
+interface SeqLine {
+  seq: number;
+  line: ConsoleLine;
+}
+
 export function Console({ instanceId, running, supportsInput }: ConsoleProps) {
-  const [lines, setLines] = useState<ConsoleLine[]>([]);
+  const [lines, setLines] = useState<SeqLine[]>([]);
+  const pendingRef = useRef<SeqLine[]>([]);
+  const seqRef = useRef(0);
   const [command, setCommand] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -35,6 +47,9 @@ export function Console({ instanceId, running, supportsInput }: ConsoleProps) {
       .catch(() => {});
   }, [instanceId]);
 
+  const withSeqs = (incoming: ConsoleLine[]): SeqLine[] =>
+    incoming.map((line) => ({ seq: seqRef.current++, line }));
+
   // Load history from the log file for stopped servers; while running the
   // SSE stream replays the live buffer itself.
   useEffect(() => {
@@ -44,7 +59,7 @@ export function Console({ instanceId, running, supportsInput }: ConsoleProps) {
     api
       .get<{ lines: ConsoleLine[] }>(`/api/instances/${instanceId}/logs`)
       .then((data) => {
-        if (!cancelled) setLines(data.lines.slice(-MAX_LINES));
+        if (!cancelled) setLines(withSeqs(data.lines.slice(-MAX_LINES)));
       })
       .catch(() => {});
     return () => {
@@ -52,17 +67,32 @@ export function Console({ instanceId, running, supportsInput }: ConsoleProps) {
     };
   }, [instanceId, running]);
 
-  // Live stream while running (the stream replays the in-memory buffer, so
-  // reset to avoid duplicates on connect).
+  // Live stream while running. Frames carry an array of lines (the replay
+  // backlog and one batch per server poll tick); they are buffered in a ref
+  // and committed on a short interval, so a chatty server costs at most
+  // ~10 renders/sec instead of one render per line.
   useSse(running ? `/api/instances/${instanceId}/logs/stream` : null, (data) => {
-    const line = data as ConsoleLine;
-    setLines((prev) => {
-      const next = [...prev, line];
-      return next.length > MAX_LINES ? next.slice(-MAX_LINES) : next;
-    });
+    const incoming = (Array.isArray(data) ? data : [data]) as ConsoleLine[];
+    pendingRef.current.push(...withSeqs(incoming));
+    // The pending buffer never needs more than the render cap.
+    if (pendingRef.current.length > MAX_LINES) {
+      pendingRef.current = pendingRef.current.slice(-MAX_LINES);
+    }
   });
   useEffect(() => {
-    if (running) setLines([]);
+    if (!running) return;
+    setLines([]);
+    pendingRef.current = [];
+    const timer = setInterval(() => {
+      if (pendingRef.current.length === 0) return;
+      const batch = pendingRef.current;
+      pendingRef.current = [];
+      setLines((prev) => {
+        const next = [...prev, ...batch];
+        return next.length > MAX_LINES ? next.slice(-MAX_LINES) : next;
+      });
+    }, FLUSH_INTERVAL_MS);
+    return () => clearInterval(timer);
   }, [running, instanceId]);
 
   useEffect(() => {
@@ -122,9 +152,9 @@ export function Console({ instanceId, running, supportsInput }: ConsoleProps) {
       </div>
       <div className="console-output" ref={scrollRef}>
         {lines.length === 0 && <div className="console-empty">No output yet.</div>}
-        {lines.map((line, i) => (
-          <div key={i} className={`console-line stream-${line.stream}`}>
-            {line.line}
+        {lines.map((entry) => (
+          <div key={entry.seq} className={`console-line stream-${entry.line.stream}`}>
+            {entry.line.line}
           </div>
         ))}
       </div>

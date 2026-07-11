@@ -37,13 +37,27 @@ export function LogsPage() {
       .catch(() => setError('Failed to load logs'));
   }, []);
 
+  // Buffer incoming stream entries and commit on a short interval - one
+  // render per SSE frame would make a debug-level stream render-bound.
+  const pendingRef = useRef<LogEntryDto[]>([]);
   useSse('/api/system/logs/stream', (data) => {
-    const line = data as LogEntryDto;
-    setEntries((prev) => {
-      const next = [...prev, line];
-      return next.length > MAX_LINES ? next.slice(-MAX_LINES) : next;
-    });
+    pendingRef.current.push(data as LogEntryDto);
+    if (pendingRef.current.length > MAX_LINES) {
+      pendingRef.current = pendingRef.current.slice(-MAX_LINES);
+    }
   });
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (pendingRef.current.length === 0) return;
+      const batch = pendingRef.current;
+      pendingRef.current = [];
+      setEntries((prev) => {
+        const next = [...prev, ...batch];
+        return next.length > MAX_LINES ? next.slice(-MAX_LINES) : next;
+      });
+    }, 150);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (autoScroll && scrollRef.current) {

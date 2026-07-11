@@ -490,7 +490,12 @@ export class AuthService {
     if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) return null;
     const user = await this.users.findById(row.user_id);
     if (!user || user.disabled === 1) return null;
-    await this.apiTokens.updateLastUsed(row.id);
+    // last_used_at is display metadata with minute granularity - skipping
+    // the UPDATE when it's fresh keeps a polling script from turning every
+    // request into a DB write (the only per-request write in the auth path).
+    if (!row.last_used_at || Date.now() - new Date(row.last_used_at).getTime() > 60_000) {
+      await this.apiTokens.updateLastUsed(row.id);
+    }
     return { user, session: null };
   }
 
