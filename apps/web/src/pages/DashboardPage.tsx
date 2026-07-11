@@ -38,6 +38,7 @@ export function DashboardPage() {
   useEffect(() => {
     refresh();
     const timer = setInterval(() => {
+      if (document.hidden) return; // don't poll from background tabs
       api
         .get<SystemStatsDto>('/api/system/stats')
         .then(setStats)
@@ -55,8 +56,10 @@ export function DashboardPage() {
     };
     loadHistory();
     // A new sample only lands server-side every 5 minutes - refresh less
-    // often than the live stats poll above.
-    const timer = setInterval(loadHistory, METRICS_HISTORY_REFRESH_MS);
+    // often than the live stats poll above, and not from background tabs.
+    const timer = setInterval(() => {
+      if (!document.hidden) loadHistory();
+    }, METRICS_HISTORY_REFRESH_MS);
     return () => clearInterval(timer);
   }, []);
 

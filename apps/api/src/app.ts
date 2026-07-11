@@ -96,7 +96,24 @@ export async function buildApp(ctx: AppContext): Promise<FastifyInstance> {
   ];
   const webRoot = candidates.find((dir) => existsSync(join(dir, 'index.html')));
   if (webRoot) {
-    await app.register(fastifyStatic, { root: webRoot, prefix: '/' });
+    // preCompressed serves the .br/.gz variants emitted by
+    // apps/web/scripts/compress-dist.mjs when the client accepts them -
+    // the main bundle shrinks to roughly a quarter. index.html (and other
+    // non-hashed files) keep the default max-age=0 + ETag revalidation, so
+    // clients pick up new builds immediately after an update.
+    await app.register(fastifyStatic, { root: webRoot, prefix: '/', preCompressed: true });
+    if (existsSync(join(webRoot, 'assets'))) {
+      // Vite content-hashes everything under assets/ - safe to cache forever.
+      // The more specific /assets/ wildcard route wins over the '/' one.
+      await app.register(fastifyStatic, {
+        root: join(webRoot, 'assets'),
+        prefix: '/assets/',
+        preCompressed: true,
+        decorateReply: false,
+        maxAge: '1y',
+        immutable: true,
+      });
+    }
     app.setNotFoundHandler((request, reply) => {
       if (request.url.startsWith('/api/')) {
         reply

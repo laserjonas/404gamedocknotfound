@@ -1,11 +1,11 @@
 {
   "name": "@gamedock/web",
-  "version": "0.17.0",
+  "version": "0.17.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "build": "tsc -p tsconfig.json --noEmit && vite build && node scripts/compress-dist.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "preview": "vite preview",
     "test": "echo \"no tests\""

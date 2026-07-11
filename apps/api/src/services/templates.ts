@@ -73,8 +73,23 @@ export class TemplateService {
     return this.loadErrors;
   }
 
+  /**
+   * Instance snapshots are parsed on every DTO build (the web UI polls the
+   * instance list), and JSON.parse + zod validation of a multi-KB template
+   * is the hottest per-request cost - so results are memoized by the exact
+   * definition string. Callers treat templates as read-only, which makes
+   * sharing the parsed object safe. Bounded: a full reset is fine because
+   * refilling costs one parse per live snapshot.
+   */
+  private static snapshotCache = new Map<string, GameTemplate>();
+
   /** Parse a template definition snapshot stored on an instance. */
   static parseSnapshot(definition: string): GameTemplate {
-    return parseTemplate(JSON.parse(definition), '<instance snapshot>');
+    const cached = TemplateService.snapshotCache.get(definition);
+    if (cached) return cached;
+    const parsed = parseTemplate(JSON.parse(definition), '<instance snapshot>');
+    if (TemplateService.snapshotCache.size >= 128) TemplateService.snapshotCache.clear();
+    TemplateService.snapshotCache.set(definition, parsed);
+    return parsed;
   }
 }

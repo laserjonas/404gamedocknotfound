@@ -48,10 +48,11 @@ export function ServerDetailPage() {
 
   useEffect(load, [load]);
 
-  // Poll usage while running.
+  // Poll usage while running (paused while the tab is in the background).
   useEffect(() => {
     if (!id || instance?.status !== 'running') return;
     const timer = setInterval(() => {
+      if (document.hidden) return;
       api
         .get<InstanceDto>(`/api/instances/${id}`)
         .then((data) => setInstance(data))

@@ -36,27 +36,58 @@ export interface DatabaseClient {
   close(): Promise<void>;
 }
 
+/**
+ * Dynamic SQL (IN (?,?,...) placeholder lists, partial UPDATE set lists)
+ * produces an unbounded number of distinct statement strings; past this size
+ * the cache is simply reset - refilling costs one prepare per statement.
+ */
+const STATEMENT_CACHE_MAX = 256;
+
 class SqliteClient implements DatabaseClient {
   private db: BetterSqlite3.Database;
+  private statements = new Map<string, BetterSqlite3.Statement>();
 
   constructor(filePath: string) {
     this.db = new BetterSqlite3(filePath);
     this.db.pragma('journal_mode = WAL');
+    // NORMAL (instead of FULL) skips the fsync on every commit; with WAL the
+    // database can never be corrupted by it - a power loss can only drop the
+    // most recent commits. The standard pairing for WAL, and a large win for
+    // write-heavy paths like job log flushing.
+    this.db.pragma('synchronous = NORMAL');
+    // Keep the -wal file from staying huge after a burst of writes.
+    this.db.pragma('journal_size_limit = 67108864');
     this.db.pragma('foreign_keys = ON');
     this.db.pragma('busy_timeout = 5000');
   }
 
+  /**
+   * Statements are cached per SQL string - preparing is the expensive part
+   * of a better-sqlite3 query, and the app's SQL is a small fixed set.
+   * SQLite transparently recompiles cached statements if the schema changes
+   * (migrations), so caching across runMigrations() is safe.
+   */
+  private prepare(sql: string): BetterSqlite3.Statement {
+    let stmt = this.statements.get(sql);
+    if (!stmt) {
+      stmt = this.db.prepare(sql);
+      if (this.statements.size >= STATEMENT_CACHE_MAX) this.statements.clear();
+      this.statements.set(sql, stmt);
+    }
+    return stmt;
+  }
+
   async run(sql: string, params: unknown[] = []): Promise<{ changes: number }> {
-    const info = this.db.prepare(sql).run(...params);
+    const info = this.prepare(sql).run(...params);
     return { changes: info.changes };
   }
 
   async get<T>(sql: string, params: unknown[] = []): Promise<T | undefined> {
-    return this.db.prepare(sql).get(...params) as T | undefined;
+    return this.prepare(sql).get(...params) as T | undefined;
   }
 
   async all<T>(sql: string, params: unknown[] = []): Promise<T[]> {
-    return this.db.prepare(sql).all(...params) as T[];
+    return this.prepare(sql).all(...params) as T[];
   }
 
   async exec(sql: string): Promise<void> {
@@ -76,6 +107,12 @@ class SqliteClient implements DatabaseClient {
   }
 
   async close(): Promise<void> {
+    try {
+      // Gives SQLite's query planner fresh statistics; cheap on shutdown.
+      this.db.pragma('optimize');
+    } catch {
+      // never block shutdown on this
+    }
     this.db.close();
   }
 }
