@@ -232,6 +232,9 @@ groupadd --system gamedock-instances 2>/dev/null || true
 # copy under /usr/local/sbin is out of the self-update's reach; it only
 # changes when install.sh (run as root) is re-run.
 install -m 0750 -o root -g root "${APP_DIR}/scripts/gamedock-instance-user" /usr/local/sbin/gamedock-instance-user
+# Companion wrapper for per-instance resource limits (systemd-run cgroup
+# scopes) - same security model, same reason to live outside APP_DIR.
+install -m 0750 -o root -g root "${APP_DIR}/scripts/gamedock-instance-run" /usr/local/sbin/gamedock-instance-run
 # DATA_DIR and its instances/ dir need "other" execute (traverse-only, no
 # read/list) so a per-instance dedicated user can reach its own instance
 # dir - it isn't a member of the gamedock group. Idempotent/self-healing:
@@ -248,6 +251,7 @@ cat >"${SUDOERS_TMP}" <<SUDOEOF
 Runas_Alias GAMEDOCK_INSTANCE_USERS = %gamedock-instances
 ${GAMEDOCK_USER} ALL=(GAMEDOCK_INSTANCE_USERS) NOPASSWD: ALL
 ${GAMEDOCK_USER} ALL=(root) NOPASSWD: /usr/local/sbin/gamedock-instance-user
+${GAMEDOCK_USER} ALL=(root) NOPASSWD: /usr/local/sbin/gamedock-instance-run
 SUDOEOF
 if visudo -cf "${SUDOERS_TMP}" >/dev/null 2>&1; then
   install -m 0440 -o root -g root "${SUDOERS_TMP}" /etc/sudoers.d/gamedock-instances

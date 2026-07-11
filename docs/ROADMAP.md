@@ -10,29 +10,12 @@ For context: Phase 0 (query batching, hot-path trimming, frontend
 code-splitting, circular log buffer), Phase 1 (file manager rename/move/
 download, instance clone, 2FA recovery codes, console command history) and
 Phase 2 (API tokens for automation, scheduled restarts, lightweight
-in-memory metrics history) are all shipped as of v0.13.0.
+in-memory metrics history) are all shipped as of v0.13.0. Per-instance
+resource limits (cgroup memory/CPU caps via a fixed root `systemd-run
+--scope` wrapper, isolated instances only) shipped in v0.17.0.
 
 ## Up next — larger, higher-value items
 
-- **Resource limit enforcement (cgroups CPU/RAM/IO caps per instance).**
-  The natural next step after per-instance user isolation. Confirmed
-  feasible: nothing today enforces limits (`processManager.ts` only spawns
-  via `sudo -n -u <user> -- <executable>` when isolation is on —
-  `apps/api/src/services/processManager.ts:284-302` — monitoring is
-  read-only via `pidusage`, not enforcement). The systemd unit's
-  `ProtectControlGroups=true` blocks GameDock from writing cgroupfs
-  directly, so the path is **`systemd-run --uid=<gd-user> --scope -p
-MemoryMax=... -p CPUQuota=...`** invoked through the same sudo mechanism
-  already used for isolated spawns — composes naturally with the existing
-  pid-resolution/signal-relay machinery built for that case. Important
-  constraint carried over from the isolation feature: this only works
-  cleanly for **already-isolated instances** (`GAMEDOCK_INSTANCE_USER_ISOLATION`,
-  off by default, not available in Docker) — shared-user instances have no
-  per-instance uid/session to scope a systemd scope to, so this would
-  either require isolation as a prerequisite or need a materially different
-  approach for the default/Docker case. Needs its own planning session,
-  live VM verification (same pattern as isolation/passkeys work), and a
-  product decision on the isolation-prerequisite question.
 - **Job queue surviving a daemon restart.** Documented gap in
   `docs/SECURITY.md`. Medium-large, a real reliability improvement
   (currently an in-progress install/backup job is lost if the API restarts

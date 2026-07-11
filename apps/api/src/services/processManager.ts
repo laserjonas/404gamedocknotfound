@@ -66,6 +66,13 @@ interface ManagedProcess {
   waiters: (() => void)[];
 }
 
+export interface InstanceResourceLimits {
+  /** Cgroup MemoryMax in MiB; null/0 = unlimited. */
+  memoryMaxMb: number | null;
+  /** Cgroup CPUQuota in percent (100 = one full core); null/0 = unlimited. */
+  cpuQuotaPercent: number | null;
+}
+
 export interface StartProcessInput {
   instanceId: string;
   instanceName: string;
@@ -74,6 +81,8 @@ export interface StartProcessInput {
   template: GameTemplate;
   /** When set, the process runs as this dedicated Linux user via sudo instead of as gamedock. */
   linuxUsername?: string | null;
+  /** Cgroup limits, applied only to isolated (dedicated-user) instances. */
+  limits?: InstanceResourceLimits | null;
 }
 
 export interface AdoptProcessInput {
@@ -82,6 +91,54 @@ export interface AdoptProcessInput {
   pid: number;
   template: GameTemplate;
   linuxUsername?: string | null;
+}
+
+/**
+ * Builds the actual spawn invocation for a game server.
+ *
+ * Shared-user instances run the executable directly. Isolated instances are
+ * wrapped in sudo, with /usr/bin/env re-applying HOME (anchored to the
+ * instance dir) and the template/instance environment that sudo's env_reset
+ * would otherwise strip; env exec-replaces itself so the tracked process
+ * chain is unchanged. When cgroup limits are set, the sudo target becomes
+ * the fixed root wrapper /usr/local/sbin/gamedock-instance-run, which pins
+ * the systemd-run --scope shape (see scripts/gamedock-instance-run) and
+ * drops back to the dedicated user via runuser.
+ */
+export function buildSpawnInvocation(input: {
+  instanceId: string;
+  instanceDir: string;
+  command: StartCommand;
+  linuxUsername: string | null;
+  limits?: InstanceResourceLimits | null;
+}): { file: string; args: string[] } {
+  if (!input.linuxUsername) {
+    return { file: input.command.executable, args: input.command.args };
+  }
+  const envWrapped = [
+    '/usr/bin/env',
+    `HOME=${input.instanceDir}`,
+    ...Object.entries(input.command.env).map(([key, value]) => `${key}=${value}`),
+    input.command.executable,
+    ...input.command.args,
+  ];
+  const memoryMaxMb = input.limits?.memoryMaxMb ?? 0;
+  const cpuQuotaPercent = input.limits?.cpuQuotaPercent ?? 0;
+  if (memoryMaxMb > 0 || cpuQuotaPercent > 0) {
+    return {
+      file: 'sudo',
+      args: [
+        '-n',
+        '/usr/local/sbin/gamedock-instance-run',
+        input.instanceId,
+        String(memoryMaxMb),
+        String(cpuQuotaPercent),
+        '--',
+        ...envWrapped,
+      ],
+    };
+  }
+  return { file: 'sudo', args: ['-n', '-u', input.linuxUsername, '--', ...envWrapped] };
 }
 
 /**
@@ -281,42 +338,24 @@ export class ProcessManager {
     const linuxUsername = input.linuxUsername ?? null;
     let proc;
     try {
-      // sudo resets the environment (env_reset, no SETENV) - template/instance
-      // env vars passed to spawn() would be stripped and HOME would point at
-      // the dedicated user's nonexistent home dir. Re-applying them through
-      // /usr/bin/env (which exec-replaces itself, so the tracked process
-      // chain is unchanged) is what actually delivers LD_LIBRARY_PATH,
-      // SteamAppId etc. to isolated game servers, with HOME anchored to the
-      // instance dir so games and steamcmd have a writable home.
-      proc = linuxUsername
-        ? spawn(
-            'sudo',
-            [
-              '-n',
-              '-u',
-              linuxUsername,
-              '--',
-              '/usr/bin/env',
-              `HOME=${input.instanceDir}`,
-              ...Object.entries(input.command.env).map(([key, value]) => `${key}=${value}`),
-              input.command.executable,
-              ...input.command.args,
-            ],
-            {
-              cwd,
-              env: this.baseEnv(),
-              shell: false,
-              stdio: [stdinFd, stdoutFd, stderrFd],
-              detached: true,
-            },
-          )
-        : spawn(input.command.executable, input.command.args, {
-            cwd,
-            env: { ...this.baseEnv(), ...input.command.env },
-            shell: false,
-            stdio: [stdinFd, stdoutFd, stderrFd],
-            detached: true,
-          });
+      // See buildSpawnInvocation for the sudo / env / resource-limit
+      // wrapping applied to isolated instances.
+      const invocation = buildSpawnInvocation({
+        instanceId: input.instanceId,
+        instanceDir: input.instanceDir,
+        command: input.command,
+        linuxUsername,
+        limits: input.limits,
+      });
+      proc = spawn(invocation.file, invocation.args, {
+        cwd,
+        // The isolated path carries the game env inside the invocation's
+        // /usr/bin/env args (sudo would strip spawn-env anyway).
+        env: linuxUsername ? this.baseEnv() : { ...this.baseEnv(), ...input.command.env },
+        shell: false,
+        stdio: [stdinFd, stdoutFd, stderrFd],
+        detached: true,
+      });
     } finally {
       closeSync(stdinFd);
       closeSync(stdoutFd);

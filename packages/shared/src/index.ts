@@ -234,6 +234,12 @@ export interface InstanceDto {
   restartIntervalHours: number | null;
   /** When the restart schedule's clock last reset (a scheduled restart, or since it was configured/changed). Null if never. */
   lastScheduledRestartAt: string | null;
+  /** True when the instance runs as its own dedicated Linux user (prerequisite for resource limits). */
+  isolated: boolean;
+  /** Cgroup memory cap in MiB; null means unlimited. Requires isolation. */
+  memoryMaxMb: number | null;
+  /** Cgroup CPU quota in percent (100 = one full core); null means unlimited. Requires isolation. */
+  cpuQuotaPercent: number | null;
 }
 
 export interface InstanceUsageDto {
@@ -265,6 +271,8 @@ export interface UpdateInstanceRequest {
   backupIntervalHours?: number | null;
   backupRetentionCount?: number | null;
   restartIntervalHours?: number | null;
+  memoryMaxMb?: number | null;
+  cpuQuotaPercent?: number | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -212,6 +212,14 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE server_instances ADD COLUMN last_scheduled_restart_at TEXT;
     `,
   },
+  {
+    id: 10,
+    name: 'resource-limits',
+    sql: `
+      ALTER TABLE server_instances ADD COLUMN memory_max_mb INTEGER;
+      ALTER TABLE server_instances ADD COLUMN cpu_quota_percent INTEGER;
+    `,
+  },
 ];
 
 export async function runMigrations(db: DatabaseClient, logger?: Logger): Promise<void> {

@@ -33,6 +33,8 @@ const updateSchema = z.object({
   backupIntervalHours: z.number().int().min(1).max(8760).nullable().optional(),
   backupRetentionCount: z.number().int().min(1).max(1000).nullable().optional(),
   restartIntervalHours: z.number().int().min(1).max(8760).nullable().optional(),
+  memoryMaxMb: z.number().int().min(128).max(1048576).nullable().optional(),
+  cpuQuotaPercent: z.number().int().min(5).max(6400).nullable().optional(),
 });
 
 const commandSchema = z.object({

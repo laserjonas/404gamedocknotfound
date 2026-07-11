@@ -93,6 +93,19 @@ The last active admin cannot be demoted, disabled or deleted.
     `sudo -u <user> /usr/bin/env HOME=<instance dir> KEY=value ... <exe>`:
     sudo's `env_reset` would otherwise strip the template/instance
     environment and point `HOME` at a nonexistent home directory.
+  - Per-instance resource limits (cgroup `MemoryMax`/`CPUQuota`) use a second
+    fixed root-owned wrapper, `/usr/local/sbin/gamedock-instance-run`:
+    `systemd-run` has to run as root (it asks PID 1 to create the transient
+    scope; the unit's `ProtectControlGroups=true` deliberately blocks writing
+    cgroupfs directly), and granting gamedock blanket root `systemd-run`
+    would be arbitrary root command execution via property injection. The
+    wrapper validates the instance id / limit numbers, resolves the username
+    from the same root-owned marker files the provisioning helper uses, pins
+    the exact `systemd-run --scope` invocation, and drops back to the
+    dedicated user via `runuser` (which initializes supplementary groups,
+    unlike `systemd-run --uid`). Limits are therefore only available for
+    isolated instances - a shared-user process has no per-instance identity
+    to scope.
   - **Trade-off, stated plainly**: this requires `NoNewPrivileges=false` in
     the systemd unit (sudo's whole mechanism is gaining privileges at exec
     time, which `NoNewPrivileges=true` blocks entirely). That narrows one

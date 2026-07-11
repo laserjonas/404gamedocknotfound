@@ -26,6 +26,12 @@ export function SettingsTab({ instance, template, onUpdated }: SettingsTabProps)
   const [restartIntervalHours, setRestartIntervalHours] = useState(
     instance.restartIntervalHours !== null ? String(instance.restartIntervalHours) : '',
   );
+  const [memoryMaxMb, setMemoryMaxMb] = useState(
+    instance.memoryMaxMb !== null ? String(instance.memoryMaxMb) : '',
+  );
+  const [cpuQuotaPercent, setCpuQuotaPercent] = useState(
+    instance.cpuQuotaPercent !== null ? String(instance.cpuQuotaPercent) : '',
+  );
   const [variables, setVariables] = useState<Record<string, string>>({ ...instance.variables });
   const [envText, setEnvText] = useState(
     Object.entries(instance.envVars)
@@ -73,12 +79,12 @@ export function SettingsTab({ instance, template, onUpdated }: SettingsTabProps)
         return { name: p.name.trim(), port, protocol: p.protocol };
       });
 
-      const parseOptionalCount = (text: string, label: string, max: number) => {
+      const parseOptionalCount = (text: string, label: string, max: number, min = 1) => {
         const trimmed = text.trim();
         if (trimmed === '') return null;
         const value = parseInt(trimmed, 10);
-        if (!Number.isInteger(value) || value < 1 || value > max) {
-          throw new Error(`${label} must be a number between 1 and ${max}, or blank`);
+        if (!Number.isInteger(value) || value < min || value > max) {
+          throw new Error(`${label} must be a number between ${min} and ${max}, or blank`);
         }
         return value;
       };
@@ -90,6 +96,8 @@ export function SettingsTab({ instance, template, onUpdated }: SettingsTabProps)
         backupIntervalHours: parseOptionalCount(backupIntervalHours, 'Backup interval', 8760),
         backupRetentionCount: parseOptionalCount(backupRetentionCount, 'Backup retention', 1000),
         restartIntervalHours: parseOptionalCount(restartIntervalHours, 'Restart interval', 8760),
+        memoryMaxMb: parseOptionalCount(memoryMaxMb, 'Memory limit', 1048576, 128),
+        cpuQuotaPercent: parseOptionalCount(cpuQuotaPercent, 'CPU limit', 6400, 5),
         variables,
         envVars,
         ports,
@@ -192,6 +200,35 @@ export function SettingsTab({ instance, template, onUpdated }: SettingsTabProps)
           {instance.lastScheduledRestartAt && (
             <> Clock last reset: {formatDate(instance.lastScheduledRestartAt)}.</>
           )}
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>Resource limits</h3>
+        <div className="form-row">
+          <label>Memory limit in MiB (blank = unlimited)</label>
+          <input
+            value={memoryMaxMb}
+            onChange={(e) => setMemoryMaxMb(e.target.value)}
+            disabled={!canEdit || !instance.isolated}
+            placeholder="e.g. 8192"
+            style={{ width: 120 }}
+          />
+        </div>
+        <div className="form-row">
+          <label>CPU limit in % of one core (blank = unlimited)</label>
+          <input
+            value={cpuQuotaPercent}
+            onChange={(e) => setCpuQuotaPercent(e.target.value)}
+            disabled={!canEdit || !instance.isolated}
+            placeholder="e.g. 200 = two cores"
+            style={{ width: 120 }}
+          />
+        </div>
+        <div className="field-hint">
+          {instance.isolated
+            ? 'Enforced via a cgroup (systemd scope) around the game process; applies on the next server start. A server exceeding its memory limit is killed by the kernel — enable crash-restart above if you want it brought back automatically.'
+            : 'Unavailable: this instance runs as the shared service user. Resource limits require per-instance user isolation (GAMEDOCK_INSTANCE_USER_ISOLATION).'}
         </div>
       </div>
 

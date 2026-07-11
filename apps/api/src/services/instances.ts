@@ -167,6 +167,9 @@ export class InstanceService {
       backupRetentionCount: row.backup_retention_count,
       restartIntervalHours: row.restart_interval_hours,
       lastScheduledRestartAt: row.last_scheduled_restart_at,
+      isolated: row.linux_username !== null,
+      memoryMaxMb: row.memory_max_mb,
+      cpuQuotaPercent: row.cpu_quota_percent,
     };
   }
 
@@ -337,6 +340,8 @@ export class InstanceService {
       backupIntervalHours: source.backup_interval_hours,
       backupRetentionCount: source.backup_retention_count,
       restartIntervalHours: source.restart_interval_hours,
+      memoryMaxMb: source.memory_max_mb,
+      cpuQuotaPercent: source.cpu_quota_percent,
       startExecutable: source.start_executable,
       startArgs: source.start_args,
     });
@@ -424,6 +429,20 @@ export class InstanceService {
       await this.repo.replaceEnvVars(id, request.envVars);
     }
 
+    // Cgroup limits only work for instances with their own dedicated Linux
+    // user (a systemd scope needs a uid to drop to) - reject instead of
+    // silently storing a limit that would never be enforced.
+    if (
+      (request.memoryMaxMb !== undefined && request.memoryMaxMb !== null) ||
+      (request.cpuQuotaPercent !== undefined && request.cpuQuotaPercent !== null)
+    ) {
+      if (!row.linux_username) {
+        throw badRequest(
+          'Resource limits require per-instance user isolation (GAMEDOCK_INSTANCE_USER_ISOLATION), which this instance does not use',
+        );
+      }
+    }
+
     await this.repo.update(id, {
       ...(request.name !== undefined ? { name: request.name } : {}),
       ...(request.autoStart !== undefined ? { autoStart: request.autoStart } : {}),
@@ -442,6 +461,10 @@ export class InstanceService {
         : {}),
       ...(request.restartIntervalHours !== undefined
         ? { restartIntervalHours: request.restartIntervalHours, lastScheduledRestartAt: null }
+        : {}),
+      ...(request.memoryMaxMb !== undefined ? { memoryMaxMb: request.memoryMaxMb } : {}),
+      ...(request.cpuQuotaPercent !== undefined
+        ? { cpuQuotaPercent: request.cpuQuotaPercent }
         : {}),
     });
 
@@ -675,6 +698,7 @@ export class InstanceService {
       command,
       template,
       linuxUsername: row.linux_username,
+      limits: { memoryMaxMb: row.memory_max_mb, cpuQuotaPercent: row.cpu_quota_percent },
     });
   }
 

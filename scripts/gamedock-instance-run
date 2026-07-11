@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+#
+# Root-owned wrapper invoked by the unprivileged gamedock user via a narrowly
+# scoped sudoers rule (see scripts/install.sh) to start a game server inside
+# a transient systemd scope with cgroup resource limits. systemd-run must run
+# as root (it asks PID 1 to create the unit), but granting gamedock blanket
+# root systemd-run would be arbitrary root command execution - so this fixed
+# wrapper validates every argument and pins the exact systemd-run shape,
+# mirroring the gamedock-instance-user helper's security model.
+#
+# usage: gamedock-instance-run <instance-uuid> <memory_max_mb> <cpu_quota_percent> -- <command> [args...]
+#        memory_max_mb / cpu_quota_percent: 0 = no limit on that axis
+set -euo pipefail
+
+if [[ $EUID -ne 0 ]]; then
+  echo "must run as root (via sudo)" >&2
+  exit 1
+fi
+
+DATA_DIR="${GAMEDOCK_DATA_DIR:-/var/lib/gamedock}"
+
+# Matches exactly what Node's crypto.randomUUID() produces.
+INSTANCE_ID_RE='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+USERNAME_RE='^gd-[0-9]{5,}$'
+
+usage() {
+  echo "usage: $0 <instance-uuid> <memory_max_mb> <cpu_quota_percent> -- <command> [args...]" >&2
+  exit 1
+}
+
+[[ $# -ge 5 ]] || usage
+uuid="$1"
+mem_mb="$2"
+cpu_pct="$3"
+[[ "$4" == "--" ]] || usage
+shift 4
+
+[[ "$uuid" =~ $INSTANCE_ID_RE ]] || { echo "invalid instance id: $uuid" >&2; exit 1; }
+[[ "$mem_mb" =~ ^[0-9]{1,7}$ ]] && (( mem_mb <= 1048576 )) || { echo "invalid memory limit: $mem_mb" >&2; exit 1; }
+[[ "$cpu_pct" =~ ^[0-9]{1,4}$ ]] && (( cpu_pct <= 6400 )) || { echo "invalid cpu quota: $cpu_pct" >&2; exit 1; }
+
+# Same trust model as gamedock-instance-user: the username is never taken
+# from the caller, only looked up by the validated instance id.
+marker="${DATA_DIR}/instance-users/${uuid}"
+[[ -f "$marker" ]] || { echo "instance $uuid has no provisioned Linux user" >&2; exit 1; }
+username="$(cat "$marker")"
+[[ "$username" =~ $USERNAME_RE ]] || { echo "invalid provisioned username for $uuid" >&2; exit 1; }
+getent passwd "$username" >/dev/null || { echo "user $username does not exist" >&2; exit 1; }
+
+props=()
+if (( mem_mb > 0 )); then
+  # MemorySwapMax=0 makes the cap real: without it the kernel just pushes the
+  # overage to swap and the game grinds instead of being OOM-killed (which
+  # GameDock's crash-restart can then handle).
+  props+=("-p" "MemoryMax=${mem_mb}M" "-p" "MemorySwapMax=0")
+fi
+if (( cpu_pct > 0 )); then
+  props+=("-p" "CPUQuota=${cpu_pct}%")
+fi
+
+# --scope keeps the game a direct descendant of this process tree (stdio
+# fds, detach-and-survive semantics, and GameDock's pid tracking all keep
+# working) instead of handing it to PID 1 as a service. runuser (not
+# systemd-run --uid) drops privileges so the game gets the user's full
+# supplementary groups - it needs gamedock-instances membership for the
+# shared cluster dir.
+exec systemd-run --quiet --collect --scope --unit="gamedock-${uuid}" \
+  "${props[@]}" -- \
+  runuser -u "$username" -- "$@"
